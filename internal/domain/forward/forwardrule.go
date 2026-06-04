@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	vo "github.com/orris-inc/orris/internal/domain/forward/valueobjects"
@@ -29,6 +30,7 @@ type ForwardRule struct {
 	tunnelType          vo.TunnelType          // tunnel type: ws or tls (default: ws)
 	name                string
 	listenPort          uint16
+	listenIP            string // local IP address to bind for inbound listening; empty means all addresses
 	targetAddress       string // final target address (required for direct and exit types if targetNodeID is not set)
 	targetPort          uint16 // final target port (required for direct and exit types if targetNodeID is not set)
 	targetNodeID        *uint  // target node ID for dynamic address resolution (mutually exclusive with targetAddress/targetPort)
@@ -42,8 +44,8 @@ type ForwardRule struct {
 	trafficMultiplier   *float64 // traffic multiplier for display. nil means auto-calculate based on node count
 	sortOrder           int
 	groupIDs            []uint               // resource group IDs for access control
-	routeConfig         *routing.RouteConfig  // per-rule routing configuration (sing-box route rules)
-	addressPreference   vo.AddressPreference  // which address to use for next hop: auto, public, tunnel
+	routeConfig         *routing.RouteConfig // per-rule routing configuration (sing-box route rules)
+	addressPreference   vo.AddressPreference // which address to use for next hop: auto, public, tunnel
 	// External rule fields (used when ruleType = external)
 	serverAddress  string // server address for external rules (replaces agent's public address)
 	externalSource string // external source identifier (required for external rules)
@@ -204,19 +206,19 @@ func NewExternalForwardRule(
 
 	now := biztime.NowUTC()
 	return &ForwardRule{
-		sid:            sid,
-		agentID:        0, // External rules don't have agents
-		userID:         userID,
-		subscriptionID: subscriptionID,
-		ruleType:       vo.ForwardRuleTypeExternal,
-		name:           name,
-		listenPort:     listenPort,
-		targetNodeID:   targetNodeID,
-		protocol:       vo.ForwardProtocolTCP, // Default, will be determined from targetNodeID
-		status:         vo.ForwardStatusEnabled,
-		remark:         remark,
-		sortOrder:      sortOrder,
-		groupIDs:       groupIDs,
+		sid:               sid,
+		agentID:           0, // External rules don't have agents
+		userID:            userID,
+		subscriptionID:    subscriptionID,
+		ruleType:          vo.ForwardRuleTypeExternal,
+		name:              name,
+		listenPort:        listenPort,
+		targetNodeID:      targetNodeID,
+		protocol:          vo.ForwardProtocolTCP, // Default, will be determined from targetNodeID
+		status:            vo.ForwardStatusEnabled,
+		remark:            remark,
+		sortOrder:         sortOrder,
+		groupIDs:          groupIDs,
 		addressPreference: vo.AddressPreferenceAuto,
 		serverAddress:     serverAddress,
 		externalSource:    externalSource,
@@ -244,6 +246,7 @@ func ReconstructForwardRule(
 	tunnelType vo.TunnelType,
 	name string,
 	listenPort uint16,
+	listenIP string,
 	targetAddress string,
 	targetPort uint16,
 	targetNodeID *uint,
@@ -321,6 +324,10 @@ func ReconstructForwardRule(
 	if addressPreference == "" {
 		addressPreference = vo.AddressPreferenceAuto
 	}
+	normalizedListenIP, err := normalizeListenIP(listenIP)
+	if err != nil {
+		return nil, fmt.Errorf("invalid listen IP: %w", err)
+	}
 
 	rule := &ForwardRule{
 		id:                  id,
@@ -338,6 +345,7 @@ func ReconstructForwardRule(
 		tunnelType:          tunnelType,
 		name:                name,
 		listenPort:          listenPort,
+		listenIP:            normalizedListenIP,
 		targetAddress:       targetAddress,
 		targetPort:          targetPort,
 		targetNodeID:        targetNodeID,
@@ -394,6 +402,25 @@ func validateAddress(address string) error {
 	}
 
 	return nil
+}
+
+func normalizeListenIP(listenIP string) (string, error) {
+	listenIP = strings.TrimSpace(listenIP)
+	if listenIP == "" {
+		return "", nil
+	}
+
+	ip := net.ParseIP(listenIP)
+	if ip == nil {
+		return "", fmt.Errorf("invalid IP address: %s", listenIP)
+	}
+	if ip.IsUnspecified() {
+		return "", nil
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String(), nil
+	}
+	return ip.String(), nil
 }
 
 // --- Getters ---
@@ -455,6 +482,12 @@ func (r *ForwardRule) Name() string {
 // ListenPort returns the listen port.
 func (r *ForwardRule) ListenPort() uint16 {
 	return r.listenPort
+}
+
+// ListenIP returns the local IP address to bind for inbound listening.
+// Empty string means all local addresses.
+func (r *ForwardRule) ListenIP() string {
+	return r.listenIP
 }
 
 // TargetAddress returns the target address.

@@ -26,6 +26,9 @@ func (r *ForwardRule) Validate() error {
 	if !r.status.IsValid() {
 		return fmt.Errorf("invalid status: %s", r.status)
 	}
+	if _, err := normalizeListenIP(r.listenIP); err != nil {
+		return fmt.Errorf("invalid listen IP: %w", err)
+	}
 
 	// Validate traffic multiplier
 	if r.trafficMultiplier != nil {

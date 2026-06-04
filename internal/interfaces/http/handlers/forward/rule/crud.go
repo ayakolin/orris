@@ -152,6 +152,7 @@ func (h *Handler) CreateRule(c *gin.Context) {
 		TunnelType:          req.TunnelType,
 		Name:                req.Name,
 		ListenPort:          req.ListenPort,
+		ListenIP:            req.ListenIP,
 		TargetAddress:       req.TargetAddress,
 		TargetPort:          req.TargetPort,
 		TargetNodeSID:       targetNodeSID,
@@ -162,8 +163,8 @@ func (h *Handler) CreateRule(c *gin.Context) {
 		SortOrder:           req.SortOrder,
 		Remark:              req.Remark,
 		GroupSIDs:           req.GroupSIDs,
-		Route:              req.Route,
-		AddressPreference:  req.AddressPreference,
+		Route:               req.Route,
+		AddressPreference:   req.AddressPreference,
 		// External rule fields
 		ServerAddress:  req.ServerAddress,
 		ExternalSource: req.ExternalSource,
@@ -319,6 +320,7 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 		TunnelHops:          req.TunnelHops,
 		TunnelType:          req.TunnelType,
 		ListenPort:          req.ListenPort,
+		ListenIP:            req.ListenIP,
 		TargetAddress:       req.TargetAddress,
 		TargetPort:          req.TargetPort,
 		TargetNodeSID:       targetNodeSID,
@@ -329,9 +331,9 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 		SortOrder:           req.SortOrder,
 		Remark:              req.Remark,
 		GroupSIDs:           req.GroupSIDs,
-		Route:              req.Route,
-		ClearRoute:         req.ClearRoute,
-		AddressPreference:  req.AddressPreference,
+		Route:               req.Route,
+		ClearRoute:          req.ClearRoute,
+		AddressPreference:   req.AddressPreference,
 	}
 
 	if err := h.updateRuleUC.Execute(c.Request.Context(), cmd); err != nil {

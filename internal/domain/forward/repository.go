@@ -40,6 +40,10 @@ type RuleReader interface {
 	// - Rules where chain_port_config contains the agent with the specified port
 	// The excludeRuleID parameter can be used to exclude a specific rule from the check (useful for updates).
 	IsPortInUseByAgent(ctx context.Context, agentID uint, port uint16, excludeRuleID uint) (bool, error)
+
+	// ListPortUsagesByAgent returns rules that use the specified port on the specified agent.
+	// This includes both main rule ports and chain_port_config entries, excluding excludeRuleID when provided.
+	ListPortUsagesByAgent(ctx context.Context, agentID uint, port uint16, excludeRuleID uint) ([]*ForwardRule, error)
 }
 
 // RuleQuerier defines list, count, and aggregate query operations for forward rules.

@@ -67,28 +67,29 @@ type ExitAgentRequest struct {
 // - direct_chain: agent_id, chain_agent_ids, chain_port_config, (target_address+target_port OR target_node_id)
 // - external: server_address, listen_port, target_node_id (required, protocol is derived from target_node)
 type CreateForwardRuleRequest struct {
-	AgentID             string             `json:"agent_id,omitempty" example:"fa_xK9mP2vL3nQ"`
-	RuleType            string             `json:"rule_type" binding:"required,oneof=direct entry chain direct_chain external" example:"direct"`
-	ExitAgentID         string             `json:"exit_agent_id,omitempty" example:"fa_yL8nQ3wM4oR"`
-	ExitAgents          []ExitAgentRequest `json:"exit_agents,omitempty" binding:"omitempty,max=10,dive"`
-	LoadBalanceStrategy string             `json:"load_balance_strategy,omitempty" binding:"omitempty,oneof=failover weighted" example:"failover"` // failover (default), weighted
-	ChainAgentIDs       []string           `json:"chain_agent_ids,omitempty" example:"[\"fa_aaa\",\"fa_bbb\"]"`
-	ChainPortConfig     map[string]uint16  `json:"chain_port_config,omitempty" example:"{\"fa_xK9mP2vL3nQ\":8080,\"fa_yL8nQ3wM4oR\":9090}"`
-	TunnelHops          *int               `json:"tunnel_hops,omitempty" binding:"omitempty,gte=0,lte=10" example:"2"`
-	TunnelType          string             `json:"tunnel_type,omitempty" binding:"omitempty,oneof=ws tls ws_smux tls_smux" example:"ws"`
-	Name                string             `json:"name" binding:"required" example:"MySQL-Forward"`
-	ListenPort          uint16             `json:"listen_port,omitempty" example:"13306"`
-	TargetAddress       string             `json:"target_address,omitempty" example:"192.168.1.100"`
-	TargetPort          uint16             `json:"target_port,omitempty" example:"3306"`
-	TargetNodeID        string             `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
-	BindIP              string             `json:"bind_ip,omitempty" example:"192.168.1.1"`
-	IPVersion           string             `json:"ip_version,omitempty" binding:"omitempty,oneof=auto ipv4 ipv6" example:"auto"`
-	Protocol            string             `json:"protocol,omitempty" binding:"omitempty,oneof=tcp udp both" example:"tcp"`
-	TrafficMultiplier   *float64           `json:"traffic_multiplier,omitempty" binding:"omitempty,gte=0,lte=1000000" example:"1.5"`
-	SortOrder           *int               `json:"sort_order,omitempty" binding:"omitempty,gte=0" example:"100"`
-	Remark              string             `json:"remark,omitempty" example:"Forward to internal MySQL server"`
+	AgentID             string                  `json:"agent_id,omitempty" example:"fa_xK9mP2vL3nQ"`
+	RuleType            string                  `json:"rule_type" binding:"required,oneof=direct entry chain direct_chain external" example:"direct"`
+	ExitAgentID         string                  `json:"exit_agent_id,omitempty" example:"fa_yL8nQ3wM4oR"`
+	ExitAgents          []ExitAgentRequest      `json:"exit_agents,omitempty" binding:"omitempty,max=10,dive"`
+	LoadBalanceStrategy string                  `json:"load_balance_strategy,omitempty" binding:"omitempty,oneof=failover weighted" example:"failover"` // failover (default), weighted
+	ChainAgentIDs       []string                `json:"chain_agent_ids,omitempty" example:"[\"fa_aaa\",\"fa_bbb\"]"`
+	ChainPortConfig     map[string]uint16       `json:"chain_port_config,omitempty" example:"{\"fa_xK9mP2vL3nQ\":8080,\"fa_yL8nQ3wM4oR\":9090}"`
+	TunnelHops          *int                    `json:"tunnel_hops,omitempty" binding:"omitempty,gte=0,lte=10" example:"2"`
+	TunnelType          string                  `json:"tunnel_type,omitempty" binding:"omitempty,oneof=ws tls ws_smux tls_smux" example:"ws"`
+	Name                string                  `json:"name" binding:"required" example:"MySQL-Forward"`
+	ListenPort          uint16                  `json:"listen_port,omitempty" example:"13306"`
+	ListenIP            string                  `json:"listen_ip,omitempty" example:"127.0.0.1"`
+	TargetAddress       string                  `json:"target_address,omitempty" example:"192.168.1.100"`
+	TargetPort          uint16                  `json:"target_port,omitempty" example:"3306"`
+	TargetNodeID        string                  `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
+	BindIP              string                  `json:"bind_ip,omitempty" example:"192.168.1.1"`
+	IPVersion           string                  `json:"ip_version,omitempty" binding:"omitempty,oneof=auto ipv4 ipv6" example:"auto"`
+	Protocol            string                  `json:"protocol,omitempty" binding:"omitempty,oneof=tcp udp both" example:"tcp"`
+	TrafficMultiplier   *float64                `json:"traffic_multiplier,omitempty" binding:"omitempty,gte=0,lte=1000000" example:"1.5"`
+	SortOrder           *int                    `json:"sort_order,omitempty" binding:"omitempty,gte=0" example:"100"`
+	Remark              string                  `json:"remark,omitempty" example:"Forward to internal MySQL server"`
 	GroupSIDs           []string                `json:"group_sids,omitempty" example:"[\"rg_xxx\",\"rg_yyy\"]"`
-	Route               *nodedto.RouteConfigDTO `json:"route,omitempty"`                                                                                 // per-rule routing configuration
+	Route               *nodedto.RouteConfigDTO `json:"route,omitempty"`                                                                          // per-rule routing configuration
 	AddressPreference   string                  `json:"address_preference,omitempty" binding:"omitempty,oneof=auto public tunnel" example:"auto"` // address preference: auto, public, tunnel
 	// External rule fields (only for rule_type=external)
 	ServerAddress  string `json:"server_address,omitempty" example:"example.com"`
@@ -98,28 +99,29 @@ type CreateForwardRuleRequest struct {
 
 // UpdateForwardRuleRequest represents a request to update a forward rule.
 type UpdateForwardRuleRequest struct {
-	Name                *string            `json:"name,omitempty" example:"MySQL-Forward-Updated"`
-	AgentID             *string            `json:"agent_id,omitempty" example:"fa_xK9mP2vL3nQ"`
-	ExitAgentID         *string            `json:"exit_agent_id,omitempty" example:"fa_yL8nQ3wM4oR"`
-	ExitAgents          []ExitAgentRequest `json:"exit_agents,omitempty" binding:"omitempty,max=10,dive"`
-	LoadBalanceStrategy *string            `json:"load_balance_strategy,omitempty" binding:"omitempty,oneof=failover weighted" example:"failover"` // failover, weighted
-	ChainAgentIDs       []string           `json:"chain_agent_ids,omitempty" example:"[\"fa_aaa\",\"fa_bbb\"]"`
-	ChainPortConfig     map[string]uint16  `json:"chain_port_config,omitempty" example:"{\"fa_xK9mP2vL3nQ\":8080,\"fa_yL8nQ3wM4oR\":9090}"`
-	TunnelHops          *int               `json:"tunnel_hops,omitempty" binding:"omitempty,gte=0,lte=10" example:"2"`
-	TunnelType          *string            `json:"tunnel_type,omitempty" binding:"omitempty,oneof=ws tls ws_smux tls_smux" example:"ws"`
-	ListenPort          *uint16            `json:"listen_port,omitempty" example:"13307"`
-	TargetAddress       *string            `json:"target_address,omitempty" example:"192.168.1.101"`
-	TargetPort          *uint16            `json:"target_port,omitempty" example:"3307"`
-	TargetNodeID        *string            `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
-	BindIP              *string            `json:"bind_ip,omitempty" example:"192.168.1.1"`
-	IPVersion           *string            `json:"ip_version,omitempty" binding:"omitempty,oneof=auto ipv4 ipv6" example:"auto"`
-	Protocol            *string            `json:"protocol,omitempty" binding:"omitempty,oneof=tcp udp both" example:"tcp"`
-	TrafficMultiplier   *float64           `json:"traffic_multiplier,omitempty" binding:"omitempty,gte=0,lte=1000000" example:"1.5"`
-	SortOrder           *int               `json:"sort_order,omitempty" example:"100"`
-	Remark              *string            `json:"remark,omitempty" example:"Updated remark"`
+	Name                *string                 `json:"name,omitempty" example:"MySQL-Forward-Updated"`
+	AgentID             *string                 `json:"agent_id,omitempty" example:"fa_xK9mP2vL3nQ"`
+	ExitAgentID         *string                 `json:"exit_agent_id,omitempty" example:"fa_yL8nQ3wM4oR"`
+	ExitAgents          []ExitAgentRequest      `json:"exit_agents,omitempty" binding:"omitempty,max=10,dive"`
+	LoadBalanceStrategy *string                 `json:"load_balance_strategy,omitempty" binding:"omitempty,oneof=failover weighted" example:"failover"` // failover, weighted
+	ChainAgentIDs       []string                `json:"chain_agent_ids,omitempty" example:"[\"fa_aaa\",\"fa_bbb\"]"`
+	ChainPortConfig     map[string]uint16       `json:"chain_port_config,omitempty" example:"{\"fa_xK9mP2vL3nQ\":8080,\"fa_yL8nQ3wM4oR\":9090}"`
+	TunnelHops          *int                    `json:"tunnel_hops,omitempty" binding:"omitempty,gte=0,lte=10" example:"2"`
+	TunnelType          *string                 `json:"tunnel_type,omitempty" binding:"omitempty,oneof=ws tls ws_smux tls_smux" example:"ws"`
+	ListenPort          *uint16                 `json:"listen_port,omitempty" example:"13307"`
+	ListenIP            *string                 `json:"listen_ip,omitempty" example:"127.0.0.1"`
+	TargetAddress       *string                 `json:"target_address,omitempty" example:"192.168.1.101"`
+	TargetPort          *uint16                 `json:"target_port,omitempty" example:"3307"`
+	TargetNodeID        *string                 `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
+	BindIP              *string                 `json:"bind_ip,omitempty" example:"192.168.1.1"`
+	IPVersion           *string                 `json:"ip_version,omitempty" binding:"omitempty,oneof=auto ipv4 ipv6" example:"auto"`
+	Protocol            *string                 `json:"protocol,omitempty" binding:"omitempty,oneof=tcp udp both" example:"tcp"`
+	TrafficMultiplier   *float64                `json:"traffic_multiplier,omitempty" binding:"omitempty,gte=0,lte=1000000" example:"1.5"`
+	SortOrder           *int                    `json:"sort_order,omitempty" example:"100"`
+	Remark              *string                 `json:"remark,omitempty" example:"Updated remark"`
 	GroupSIDs           *[]string               `json:"group_sids,omitempty" example:"[\"rg_xxx\",\"rg_yyy\"]"`
-	Route               *nodedto.RouteConfigDTO `json:"route,omitempty"`                                                                                 // per-rule routing configuration
-	ClearRoute          *bool                   `json:"clear_route,omitempty"`                                                                           // true to clear route config
+	Route               *nodedto.RouteConfigDTO `json:"route,omitempty"`                                                                          // per-rule routing configuration
+	ClearRoute          *bool                   `json:"clear_route,omitempty"`                                                                    // true to clear route config
 	AddressPreference   *string                 `json:"address_preference,omitempty" binding:"omitempty,oneof=auto public tunnel" example:"auto"` // address preference: auto, public, tunnel
 }
 
@@ -143,4 +145,3 @@ type ForwardRuleOrder struct {
 	RuleID    string `json:"rule_id" binding:"required" example:"fr_xK9mP2vL3nQ"`
 	SortOrder int    `json:"sort_order" binding:"gte=0" example:"100"`
 }
-

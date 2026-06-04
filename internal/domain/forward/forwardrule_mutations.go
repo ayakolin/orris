@@ -68,6 +68,21 @@ func (r *ForwardRule) UpdateListenPort(port uint16) error {
 	return nil
 }
 
+// UpdateListenIP updates the local IP address used for inbound listening.
+// Empty, 0.0.0.0, and :: all mean listening on all local addresses.
+func (r *ForwardRule) UpdateListenIP(listenIP string) error {
+	normalized, err := normalizeListenIP(listenIP)
+	if err != nil {
+		return fmt.Errorf("invalid listen IP address: %w", err)
+	}
+	if r.listenIP == normalized {
+		return nil
+	}
+	r.listenIP = normalized
+	r.updatedAt = biztime.NowUTC()
+	return nil
+}
+
 // UpdateTarget updates the target address and port.
 // This will clear the targetNodeID when setting static address.
 func (r *ForwardRule) UpdateTarget(address string, port uint16) error {

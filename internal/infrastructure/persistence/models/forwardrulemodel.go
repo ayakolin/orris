@@ -24,23 +24,24 @@ type ForwardRuleModel struct {
 	ChainPortConfig     datatypes.JSON `gorm:"type:json;default:null"`                                              // map of agent_id -> listen_port for direct_chain type or hybrid chain direct hops
 	TunnelHops          *int           `gorm:"column:tunnel_hops"`                                                  // number of hops using tunnel (nil=full tunnel, N=first N hops use tunnel)
 	TunnelType          string         `gorm:"not null;default:ws;size:10"`                                         // tunnel type: ws or tls
-	Name              string         `gorm:"not null;size:100;index:idx_forward_name"`
-	ListenPort        uint16         `gorm:"not null;uniqueIndex:idx_listen_port_agent_server"`
-	TargetAddress     string         `gorm:"size:255"`                                    // required when RuleType=direct (if TargetNodeID is not set)
-	TargetPort        uint16         `gorm:"default:0"`                                   // required when RuleType=direct (if TargetNodeID is not set)
-	TargetNodeID      *uint          `gorm:"index:idx_forward_target_node_id"`            // target node ID for dynamic address resolution (mutually exclusive with TargetAddress/TargetPort)
-	BindIP            string         `gorm:"size:45"`                                     // bind IP address for outbound connections (optional)
-	IPVersion         string         `gorm:"not null;default:auto;size:10"`               // auto, ipv4, ipv6
-	Protocol          string         `gorm:"not null;size:10;index:idx_forward_protocol"` // tcp, udp, both
-	Status            string         `gorm:"not null;default:disabled;size:20;index:idx_forward_status"`
-	Remark            string         `gorm:"size:500"`
-	UploadBytes       int64          `gorm:"not null;default:0"`
-	DownloadBytes     int64          `gorm:"not null;default:0"`
-	TrafficMultiplier *float64       `gorm:"column:traffic_multiplier;type:decimal(10,4)"`
-	SortOrder         int            `gorm:"not null;default:0"`
-	GroupIDs          datatypes.JSON `gorm:"column:group_ids"`                                         // resource group IDs (JSON array)
-	RouteConfig       datatypes.JSON `gorm:"column:route_config"`                                       // per-rule routing configuration (JSON)
-	AddressPreference string         `gorm:"column:address_preference;not null;default:auto;size:10"` // address preference: auto, public, tunnel
+	Name                string         `gorm:"not null;size:100;index:idx_forward_name"`
+	ListenPort          uint16         `gorm:"not null;uniqueIndex:idx_listen_port_agent_server"`
+	ListenIP            string         `gorm:"column:listen_ip;not null;default:'';size:45;uniqueIndex:idx_listen_port_agent_server"` // local listen IP; empty means all addresses
+	TargetAddress       string         `gorm:"size:255"`                                                                              // required when RuleType=direct (if TargetNodeID is not set)
+	TargetPort          uint16         `gorm:"default:0"`                                                                             // required when RuleType=direct (if TargetNodeID is not set)
+	TargetNodeID        *uint          `gorm:"index:idx_forward_target_node_id"`                                                      // target node ID for dynamic address resolution (mutually exclusive with TargetAddress/TargetPort)
+	BindIP              string         `gorm:"size:45"`                                                                               // bind IP address for outbound connections (optional)
+	IPVersion           string         `gorm:"not null;default:auto;size:10"`                                                         // auto, ipv4, ipv6
+	Protocol            string         `gorm:"not null;size:10;index:idx_forward_protocol"`                                           // tcp, udp, both
+	Status              string         `gorm:"not null;default:disabled;size:20;index:idx_forward_status"`
+	Remark              string         `gorm:"size:500"`
+	UploadBytes         int64          `gorm:"not null;default:0"`
+	DownloadBytes       int64          `gorm:"not null;default:0"`
+	TrafficMultiplier   *float64       `gorm:"column:traffic_multiplier;type:decimal(10,4)"`
+	SortOrder           int            `gorm:"not null;default:0"`
+	GroupIDs            datatypes.JSON `gorm:"column:group_ids"`                                        // resource group IDs (JSON array)
+	RouteConfig         datatypes.JSON `gorm:"column:route_config"`                                     // per-rule routing configuration (JSON)
+	AddressPreference   string         `gorm:"column:address_preference;not null;default:auto;size:10"` // address preference: auto, public, tunnel
 	// External rule fields (used when RuleType = 'external')
 	ServerAddress  *string `gorm:"column:server_address;size:255;uniqueIndex:idx_listen_port_agent_server"` // server address for external rules
 	ExternalSource *string `gorm:"column:external_source;size:50"`                                          // external source identifier

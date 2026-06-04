@@ -81,6 +81,25 @@ func (m *MockForwardRuleRepository) GetByID(ctx context.Context, id uint) (*forw
 	return rule, nil
 }
 
+// GetByIDs retrieves multiple forward rules by their internal IDs.
+func (m *MockForwardRuleRepository) GetByIDs(ctx context.Context, ids []uint) (map[uint]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.getError != nil {
+		return nil, m.getError
+	}
+
+	result := make(map[uint]*forward.ForwardRule, len(ids))
+	for _, id := range ids {
+		if rule, exists := m.rules[id]; exists {
+			result[id] = rule
+		}
+	}
+
+	return result, nil
+}
+
 // GetBySID retrieves a forward rule by short ID.
 func (m *MockForwardRuleRepository) GetBySID(ctx context.Context, shortID string) (*forward.ForwardRule, error) {
 	m.mu.RLock()
@@ -162,6 +181,11 @@ func (m *MockForwardRuleRepository) Delete(ctx context.Context, id uint) error {
 	delete(m.rulesByPort, rule.ListenPort())
 
 	return nil
+}
+
+// HardDelete permanently removes a forward rule.
+func (m *MockForwardRuleRepository) HardDelete(ctx context.Context, id uint) error {
+	return m.Delete(ctx, id)
 }
 
 // List returns all forward rules with optional filtering.
@@ -328,6 +352,36 @@ func (m *MockForwardRuleRepository) IsPortInUseByAgent(ctx context.Context, agen
 	return false, nil
 }
 
+// ListPortUsagesByAgent returns rules that use a port on the specified agent.
+func (m *MockForwardRuleRepository) ListPortUsagesByAgent(ctx context.Context, agentID uint, port uint16, excludeRuleID uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.existsError != nil {
+		return nil, m.existsError
+	}
+
+	rules := make([]*forward.ForwardRule, 0)
+	for _, rule := range m.rules {
+		if excludeRuleID > 0 && rule.ID() == excludeRuleID {
+			continue
+		}
+
+		if rule.AgentID() == agentID && rule.ListenPort() == port {
+			rules = append(rules, rule)
+			continue
+		}
+
+		for chainAgentID, chainPort := range rule.ChainPortConfig() {
+			if chainAgentID == agentID && chainPort == port {
+				rules = append(rules, rule)
+				break
+			}
+		}
+	}
+	return rules, nil
+}
+
 // UpdateTraffic updates the traffic counters for a rule.
 func (m *MockForwardRuleRepository) UpdateTraffic(ctx context.Context, id uint, upload, download int64) error {
 	m.mu.Lock()
@@ -384,6 +438,36 @@ func (m *MockForwardRuleRepository) ListEnabledByExitAgentID(ctx context.Context
 	return rules, nil
 }
 
+// ListEnabledByExitAgentIDs returns enabled entry rules for multiple exit agents.
+func (m *MockForwardRuleRepository) ListEnabledByExitAgentIDs(ctx context.Context, exitAgentIDs []uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	exitAgentSet := make(map[uint]bool, len(exitAgentIDs))
+	for _, id := range exitAgentIDs {
+		exitAgentSet[id] = true
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if !rule.IsEnabled() {
+			continue
+		}
+		for _, id := range rule.GetAllExitAgentIDs() {
+			if exitAgentSet[id] {
+				rules = append(rules, rule)
+				break
+			}
+		}
+	}
+
+	return rules, nil
+}
+
 // ListEnabledByChainAgentID returns all enabled chain rules where the agent participates.
 func (m *MockForwardRuleRepository) ListEnabledByChainAgentID(ctx context.Context, agentID uint) ([]*forward.ForwardRule, error) {
 	m.mu.RLock()
@@ -404,6 +488,147 @@ func (m *MockForwardRuleRepository) ListEnabledByChainAgentID(ctx context.Contex
 				rules = append(rules, rule)
 				break
 			}
+		}
+	}
+
+	return rules, nil
+}
+
+// ListSystemRulesByTargetNodes returns enabled system rules targeting the specified nodes.
+func (m *MockForwardRuleRepository) ListSystemRulesByTargetNodes(ctx context.Context, nodeIDs []uint, groupIDs []uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	nodeSet := make(map[uint]bool, len(nodeIDs))
+	for _, id := range nodeIDs {
+		nodeSet[id] = true
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if !rule.IsEnabled() || rule.UserID() != nil || rule.TargetNodeID() == nil || !nodeSet[*rule.TargetNodeID()] {
+			continue
+		}
+		if len(groupIDs) > 0 && !hasAnyUint(rule.GroupIDs(), groupIDs) {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+
+	return rules, nil
+}
+
+// ListSystemRulesByGroupIDs returns enabled system rules belonging to any group.
+func (m *MockForwardRuleRepository) ListSystemRulesByGroupIDs(ctx context.Context, groupIDs []uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if !rule.IsEnabled() || rule.UserID() != nil || rule.TargetNodeID() == nil {
+			continue
+		}
+		if len(groupIDs) > 0 && !hasAnyUint(rule.GroupIDs(), groupIDs) {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+
+	return rules, nil
+}
+
+// ListUserRulesForDelivery returns enabled user-owned rules for subscription delivery.
+func (m *MockForwardRuleRepository) ListUserRulesForDelivery(ctx context.Context, userID uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if !rule.IsEnabled() || rule.UserID() == nil || *rule.UserID() != userID || rule.TargetNodeID() == nil {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+
+	return rules, nil
+}
+
+// ListEnabledByTargetNodeID returns all enabled rules targeting a node.
+func (m *MockForwardRuleRepository) ListEnabledByTargetNodeID(ctx context.Context, nodeID uint) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if rule.IsEnabled() && rule.TargetNodeID() != nil && *rule.TargetNodeID() == nodeID {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
+}
+
+// ListByGroupID returns rules that belong to the specified resource group.
+func (m *MockForwardRuleRepository) ListByGroupID(ctx context.Context, groupID uint, page, pageSize int) ([]*forward.ForwardRule, int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, 0, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if hasUint(rule.GroupIDs(), groupID) {
+			rules = append(rules, rule)
+		}
+	}
+
+	total := int64(len(rules))
+	if page > 0 && pageSize > 0 {
+		start := (page - 1) * pageSize
+		end := start + pageSize
+		if start >= len(rules) {
+			return []*forward.ForwardRule{}, total, nil
+		}
+		if end > len(rules) {
+			end = len(rules)
+		}
+		rules = rules[start:end]
+	}
+
+	return rules, total, nil
+}
+
+// ListByExternalSource returns all rules with the given external source.
+func (m *MockForwardRuleRepository) ListByExternalSource(ctx context.Context, source string) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if rule.ExternalSource() == source {
+			rules = append(rules, rule)
 		}
 	}
 
@@ -566,6 +791,135 @@ func (m *MockForwardRuleRepository) UpdateSortOrders(ctx context.Context, ruleOr
 	}
 
 	return nil
+}
+
+// AddGroupIDAtomically adds a group ID to a rule's group_ids array.
+func (m *MockForwardRuleRepository) AddGroupIDAtomically(ctx context.Context, ruleID uint, groupID uint) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.updateError != nil {
+		return false, m.updateError
+	}
+
+	rule, exists := m.rules[ruleID]
+	if !exists {
+		return false, nil
+	}
+	for _, existingID := range rule.GroupIDs() {
+		if existingID == groupID {
+			return false, nil
+		}
+	}
+	groupIDs := append(append([]uint(nil), rule.GroupIDs()...), groupID)
+	rule.SetGroupIDs(groupIDs)
+	return true, nil
+}
+
+// RemoveGroupIDAtomically removes a group ID from a rule's group_ids array.
+func (m *MockForwardRuleRepository) RemoveGroupIDAtomically(ctx context.Context, ruleID uint, groupID uint) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.updateError != nil {
+		return false, m.updateError
+	}
+
+	rule, exists := m.rules[ruleID]
+	if !exists {
+		return false, nil
+	}
+	groupIDs := rule.GroupIDs()
+	nextGroupIDs := make([]uint, 0, len(groupIDs))
+	removed := false
+	for _, existingID := range groupIDs {
+		if existingID == groupID {
+			removed = true
+			continue
+		}
+		nextGroupIDs = append(nextGroupIDs, existingID)
+	}
+	if removed {
+		rule.SetGroupIDs(nextGroupIDs)
+	}
+	return removed, nil
+}
+
+// RemoveGroupIDFromAllRules removes a group ID from all matching rules.
+func (m *MockForwardRuleRepository) RemoveGroupIDFromAllRules(ctx context.Context, groupID uint) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.updateError != nil {
+		return 0, m.updateError
+	}
+
+	var updated int64
+	for _, rule := range m.rules {
+		groupIDs := rule.GroupIDs()
+		nextGroupIDs := make([]uint, 0, len(groupIDs))
+		removed := false
+		for _, existingID := range groupIDs {
+			if existingID == groupID {
+				removed = true
+				continue
+			}
+			nextGroupIDs = append(nextGroupIDs, existingID)
+		}
+		if removed {
+			rule.SetGroupIDs(nextGroupIDs)
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+// BatchAddGroupID adds a group ID to multiple rules.
+func (m *MockForwardRuleRepository) BatchAddGroupID(ctx context.Context, ruleIDs []uint, groupID uint) (int, error) {
+	updated := 0
+	for _, ruleID := range ruleIDs {
+		added, err := m.AddGroupIDAtomically(ctx, ruleID, groupID)
+		if err != nil {
+			return updated, err
+		}
+		if added {
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+// BatchRemoveGroupID removes a group ID from multiple rules.
+func (m *MockForwardRuleRepository) BatchRemoveGroupID(ctx context.Context, ruleIDs []uint, groupID uint) (int, error) {
+	updated := 0
+	for _, ruleID := range ruleIDs {
+		removed, err := m.RemoveGroupIDAtomically(ctx, ruleID, groupID)
+		if err != nil {
+			return updated, err
+		}
+		if removed {
+			updated++
+		}
+	}
+	return updated, nil
+}
+
+func hasUint(values []uint, needle uint) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyUint(values []uint, needles []uint) bool {
+	for _, needle := range needles {
+		if hasUint(values, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // Helper methods for testing
@@ -738,6 +1092,25 @@ func (m *MockForwardAgentRepository) GetBySID(ctx context.Context, shortID strin
 	return agent, nil
 }
 
+// GetBySIDs retrieves multiple forward agents by their SIDs.
+func (m *MockForwardAgentRepository) GetBySIDs(ctx context.Context, sids []string) ([]*forward.ForwardAgent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.getError != nil {
+		return nil, m.getError
+	}
+
+	agents := make([]*forward.ForwardAgent, 0, len(sids))
+	for _, sid := range sids {
+		if agent, exists := m.agentsByShortID[sid]; exists {
+			agents = append(agents, agent)
+		}
+	}
+
+	return agents, nil
+}
+
 // GetByTokenHash retrieves a forward agent by token hash.
 func (m *MockForwardAgentRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*forward.ForwardAgent, error) {
 	m.mu.RLock()
@@ -768,6 +1141,71 @@ func (m *MockForwardAgentRepository) GetSIDsByIDs(ctx context.Context, ids []uin
 	for _, id := range ids {
 		if agent, exists := m.agents[id]; exists {
 			result[id] = agent.SID()
+		}
+	}
+
+	return result, nil
+}
+
+// GetByIDs retrieves multiple forward agents by their internal IDs.
+func (m *MockForwardAgentRepository) GetByIDs(ctx context.Context, ids []uint) (map[uint]*forward.ForwardAgent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.getError != nil {
+		return nil, m.getError
+	}
+
+	result := make(map[uint]*forward.ForwardAgent, len(ids))
+	for _, id := range ids {
+		if agent, exists := m.agents[id]; exists {
+			result[id] = agent
+		}
+	}
+
+	return result, nil
+}
+
+// GetAllEnabledMetadata returns lightweight metadata for all enabled agents.
+func (m *MockForwardAgentRepository) GetAllEnabledMetadata(ctx context.Context) ([]*forward.AgentMetadata, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	result := make([]*forward.AgentMetadata, 0, len(m.agents))
+	for _, agent := range m.agents {
+		if agent.Status() == forward.AgentStatusEnabled {
+			result = append(result, &forward.AgentMetadata{
+				ID:   agent.ID(),
+				SID:  agent.SID(),
+				Name: agent.Name(),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// GetMetadataBySIDs returns lightweight metadata for agents by SIDs.
+func (m *MockForwardAgentRepository) GetMetadataBySIDs(ctx context.Context, sids []string) ([]*forward.AgentMetadata, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.getError != nil {
+		return nil, m.getError
+	}
+
+	result := make([]*forward.AgentMetadata, 0, len(sids))
+	for _, sid := range sids {
+		if agent, exists := m.agentsByShortID[sid]; exists {
+			result = append(result, &forward.AgentMetadata{
+				ID:   agent.ID(),
+				SID:  agent.SID(),
+				Name: agent.Name(),
+			})
 		}
 	}
 
@@ -930,6 +1368,113 @@ func (m *MockForwardAgentRepository) UpdateAgentInfo(ctx context.Context, id uin
 	}
 
 	return nil
+}
+
+// CountByLastSeenAfter counts agents whose last_seen_at is after the given threshold.
+func (m *MockForwardAgentRepository) CountByLastSeenAfter(ctx context.Context, threshold time.Time) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return 0, m.listError
+	}
+
+	var count int64
+	for _, agent := range m.agents {
+		if lastSeen := agent.LastSeenAt(); lastSeen != nil && lastSeen.After(threshold) {
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+// FindExpiringAgents returns enabled agents expiring within the specified days.
+func (m *MockForwardAgentRepository) FindExpiringAgents(ctx context.Context, withinDays int) ([]*forward.ExpiringAgentInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	now := time.Now()
+	cutoff := now.Add(time.Duration(withinDays) * 24 * time.Hour)
+	result := make([]*forward.ExpiringAgentInfo, 0)
+	for _, agent := range m.agents {
+		expiresAt := agent.ExpiresAt()
+		if agent.Status() != forward.AgentStatusEnabled || expiresAt == nil || expiresAt.Before(now) || expiresAt.After(cutoff) {
+			continue
+		}
+		result = append(result, &forward.ExpiringAgentInfo{
+			ID:        agent.ID(),
+			SID:       agent.SID(),
+			Name:      agent.Name(),
+			ExpiresAt: *expiresAt,
+			CostLabel: agent.CostLabel(),
+		})
+	}
+
+	return result, nil
+}
+
+// BatchUpdateGroupIDs updates group_ids for multiple agents.
+func (m *MockForwardAgentRepository) BatchUpdateGroupIDs(ctx context.Context, agentGroupIDs map[uint][]uint) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.updateError != nil {
+		return 0, m.updateError
+	}
+
+	updated := 0
+	for agentID, groupIDs := range agentGroupIDs {
+		if agent, exists := m.agents[agentID]; exists {
+			agent.SetGroupIDs(groupIDs)
+			updated++
+		}
+	}
+
+	return updated, nil
+}
+
+// FindOfflineAgents returns enabled agents whose last_seen_at is before cutoff.
+func (m *MockForwardAgentRepository) FindOfflineAgents(ctx context.Context, cutoff time.Time) ([]*forward.OfflineAgentInfo, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	result := make([]*forward.OfflineAgentInfo, 0)
+	for _, agent := range m.agents {
+		lastSeen := agent.LastSeenAt()
+		if agent.Status() != forward.AgentStatusEnabled || lastSeen == nil || !lastSeen.Before(cutoff) {
+			continue
+		}
+		result = append(result, &forward.OfflineAgentInfo{
+			ID:               agent.ID(),
+			SID:              agent.SID(),
+			Name:             agent.Name(),
+			LastSeenAt:       *lastSeen,
+			MuteNotification: agent.MuteNotification(),
+		})
+	}
+
+	return result, nil
+}
+
+// CountAll returns the total number of agents.
+func (m *MockForwardAgentRepository) CountAll(ctx context.Context) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return 0, m.listError
+	}
+
+	return int64(len(m.agents)), nil
 }
 
 // Helper methods for testing

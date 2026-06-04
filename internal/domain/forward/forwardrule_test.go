@@ -1726,15 +1726,16 @@ func TestForwardRule_Validate_RejectsInvalidRuleType(t *testing.T) {
 		nil,             // tunnelHops
 		vo.TunnelTypeWS, // tunnelType
 		"test", 8080,
+		"",
 		"10.0.0.1", 9000, nil,
 		"", vo.IPVersionAuto, vo.ForwardProtocolTCP,
 		vo.ForwardStatusDisabled,
 		"", 0, 0, nil,
-		0,          // sortOrder
-		nil,        // groupIDs
-		nil,                          // routeConfig
-		vo.AddressPreferenceAuto,     // addressPreference
-		"", "", "",                   // serverAddress, externalSource, externalRuleID
+		0,                        // sortOrder
+		nil,                      // groupIDs
+		nil,                      // routeConfig
+		vo.AddressPreferenceAuto, // addressPreference
+		"", "", "",               // serverAddress, externalSource, externalRuleID
 		time.Now(), time.Now(),
 	)
 

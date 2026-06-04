@@ -27,6 +27,7 @@ type CreateSubscriptionForwardRuleCommand struct {
 	TunnelType         string            // tunnel type: ws or tls
 	Name               string
 	ListenPort         uint16 // listen port (0 = auto-assign)
+	ListenIP           string // local IP to bind for inbound listening (empty = all addresses)
 	TargetAddress      string
 	TargetPort         uint16
 	TargetNodeSID      string // optional target node
@@ -49,6 +50,7 @@ type CreateSubscriptionForwardRuleResult struct {
 	ExitAgentID    uint   `json:"exit_agent_id,omitempty"`
 	Name           string `json:"name"`
 	ListenPort     uint16 `json:"listen_port"`
+	ListenIP       string `json:"listen_ip,omitempty"`
 	TargetAddress  string `json:"target_address,omitempty"`
 	TargetPort     uint16 `json:"target_port,omitempty"`
 	TargetNodeID   *uint  `json:"target_node_id,omitempty"`
@@ -114,13 +116,16 @@ func (uc *CreateSubscriptionForwardRuleUseCase) Execute(ctx context.Context, cmd
 		return nil, errors.NewNotFoundError("forward agent", cmd.AgentShortID)
 	}
 	agentID := agent.ID()
+	if _, err := normalizeListenIPForPortUsage(cmd.ListenIP); err != nil {
+		return nil, errors.NewValidationError(err.Error())
+	}
 
 	// Record whether port should be auto-assigned (for retry logic on conflict)
 	isAutoAssignPort := cmd.ListenPort == 0
 
 	// Auto-assign listen port if not specified
 	if isAutoAssignPort {
-		port, err := uc.assignAvailablePort(ctx, agent)
+		port, err := uc.assignAvailablePort(ctx, agent, cmd.ListenIP)
 		if err != nil {
 			uc.logger.Errorw("failed to auto-assign listen port", "agent_id", agentID, "subscription_id", cmd.SubscriptionID, "error", err)
 			return nil, err
@@ -139,6 +144,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) Execute(ctx context.Context, cmd
 	// Store the context for port conflict retry
 	portRetryCtx := &portRetryContext{
 		agent:            agent,
+		listenIP:         cmd.ListenIP,
 		isAutoAssignPort: isAutoAssignPort,
 	}
 
@@ -193,7 +199,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) Execute(ctx context.Context, cmd
 						port, shortID, chainAgent.AllowedPortRange().String()))
 			}
 			// Check if the port is already in use on this chain agent
-			inUse, err := uc.repo.IsPortInUseByAgent(ctx, chainAgent.ID(), port, 0)
+			inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, chainAgent, port, "", 0)
 			if err != nil {
 				uc.logger.Errorw("failed to check chain agent port", "chain_agent_id", chainAgent.ID(), "port", port, "subscription_id", cmd.SubscriptionID, "error", err)
 				return nil, fmt.Errorf("failed to check chain agent port: %w", err)
@@ -240,6 +246,16 @@ func (uc *CreateSubscriptionForwardRuleUseCase) Execute(ctx context.Context, cmd
 		return nil, err
 	}
 
+	inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, agent, cmd.ListenPort, cmd.ListenIP, 0)
+	if err != nil {
+		uc.logger.Errorw("failed to check existing subscription forward rule", "agent_id", agentID, "port", cmd.ListenPort, "subscription_id", cmd.SubscriptionID, "error", err)
+		return nil, fmt.Errorf("failed to check existing rule: %w", err)
+	}
+	if inUse {
+		uc.logger.Warnw("listen port already in use on this agent", "agent_id", agentID, "port", cmd.ListenPort, "subscription_id", cmd.SubscriptionID)
+		return nil, errors.NewConflictError("listen port is already in use on this agent", fmt.Sprintf("%d", cmd.ListenPort))
+	}
+
 	// Create and persist rule with port conflict retry
 	return uc.createRuleWithRetry(ctx, cmd, agentID, exitAgentID, chainAgentIDs, chainPortConfig, targetNodeID, portRetryCtx)
 }
@@ -247,6 +263,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) Execute(ctx context.Context, cmd
 // portRetryContext holds context for port conflict retry logic.
 type portRetryContext struct {
 	agent            *forward.ForwardAgent
+	listenIP         string
 	isAutoAssignPort bool
 }
 
@@ -301,7 +318,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) createRuleWithRetry(
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			// Re-assign port on retry (only for auto-assign mode)
-			newPort, err := uc.assignAvailablePort(ctx, retryCtx.agent)
+			newPort, err := uc.assignAvailablePort(ctx, retryCtx.agent, retryCtx.listenIP)
 			if err != nil {
 				uc.logger.Errorw("failed to re-assign port on retry",
 					"agent_id", agentID,
@@ -351,6 +368,9 @@ func (uc *CreateSubscriptionForwardRuleUseCase) createRuleWithRetry(
 			uc.logger.Errorw("failed to create forward rule entity", "subscription_id", cmd.SubscriptionID, "error", err)
 			return nil, errors.NewValidationError(err.Error())
 		}
+		if err := rule.UpdateListenIP(cmd.ListenIP); err != nil {
+			return nil, errors.NewValidationError(err.Error())
+		}
 
 		// Persist - database unique constraint is the final protection against race conditions
 		if err := uc.repo.Create(ctx, rule); err != nil {
@@ -381,6 +401,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) createRuleWithRetry(
 			ExitAgentID:    rule.ExitAgentID(),
 			Name:           rule.Name(),
 			ListenPort:     rule.ListenPort(),
+			ListenIP:       rule.ListenIP(),
 			TargetAddress:  rule.TargetAddress(),
 			TargetPort:     rule.TargetPort(),
 			TargetNodeID:   rule.TargetNodeID(),
@@ -541,9 +562,8 @@ const (
 )
 
 // assignAvailablePort finds an available port for the given agent.
-func (uc *CreateSubscriptionForwardRuleUseCase) assignAvailablePort(ctx context.Context, agent *forward.ForwardAgent) (uint16, error) {
+func (uc *CreateSubscriptionForwardRuleUseCase) assignAvailablePort(ctx context.Context, agent *forward.ForwardAgent, listenIP string) (uint16, error) {
 	portRange := agent.AllowedPortRange()
-	agentID := agent.ID()
 
 	for i := 0; i < subscriptionMaxPortAssignAttempts; i++ {
 		var port uint16
@@ -561,7 +581,7 @@ func (uc *CreateSubscriptionForwardRuleUseCase) assignAvailablePort(ctx context.
 			continue
 		}
 
-		inUse, err := uc.repo.IsPortInUseByAgent(ctx, agentID, port, 0)
+		inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, agent, port, listenIP, 0)
 		if err != nil {
 			return 0, fmt.Errorf("failed to check port availability: %w", err)
 		}

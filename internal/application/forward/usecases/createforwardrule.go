@@ -37,6 +37,7 @@ type CreateForwardRuleCommand struct {
 	TunnelType          string            // tunnel type: ws or tls (default: ws)
 	Name                string
 	ListenPort          uint16   // listen port (0 = auto-assign from agent's allowed range, required for external type)
+	ListenIP            string   // local IP to bind for inbound listening (empty = all addresses)
 	TargetAddress       string   // required for all types except external (mutually exclusive with TargetNodeSID)
 	TargetPort          uint16   // required for all types except external (mutually exclusive with TargetNodeSID)
 	TargetNodeSID       string   // optional for all types (Stripe-style short ID without prefix)
@@ -63,6 +64,7 @@ type CreateForwardRuleResult struct {
 	ExitAgentID   uint   `json:"exit_agent_id,omitempty"`
 	Name          string `json:"name"`
 	ListenPort    uint16 `json:"listen_port"`
+	ListenIP      string `json:"listen_ip,omitempty"`
 	TargetAddress string `json:"target_address,omitempty"`
 	TargetPort    uint16 `json:"target_port,omitempty"`
 	TargetNodeID  *uint  `json:"target_node_id,omitempty"`
@@ -142,10 +144,13 @@ func (uc *CreateForwardRuleUseCase) Execute(ctx context.Context, cmd CreateForwa
 		return nil, errors.NewNotFoundError("forward agent", cmd.AgentShortID)
 	}
 	agentID := agent.ID()
+	if _, err := normalizeListenIPForPortUsage(cmd.ListenIP); err != nil {
+		return nil, errors.NewValidationError(err.Error())
+	}
 
 	// Auto-assign listen port if not specified
 	if cmd.ListenPort == 0 {
-		port, err := uc.assignAvailablePort(ctx, agent)
+		port, err := uc.assignAvailablePort(ctx, agent, cmd.ListenIP)
 		if err != nil {
 			uc.logger.Errorw("failed to auto-assign listen port", "agent_id", agentID, "error", err)
 			return nil, err
@@ -256,7 +261,7 @@ func (uc *CreateForwardRuleUseCase) Execute(ctx context.Context, cmd CreateForwa
 						port, shortID, chainAgent.AllowedPortRange().String()))
 			}
 			// Check if the port is already in use on this chain agent (including other rules' chain_port_config)
-			inUse, err := uc.repo.IsPortInUseByAgent(ctx, chainAgent.ID(), port, 0)
+			inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, chainAgent, port, "", 0)
 			if err != nil {
 				uc.logger.Errorw("failed to check chain agent port", "chain_agent_id", chainAgent.ID(), "port", port, "error", err)
 				return nil, fmt.Errorf("failed to check chain agent port: %w", err)
@@ -315,7 +320,7 @@ func (uc *CreateForwardRuleUseCase) Execute(ctx context.Context, cmd CreateForwa
 	}
 
 	// Check if listen port is already in use on this agent (including other rules' chain_port_config)
-	inUse, err := uc.repo.IsPortInUseByAgent(ctx, agentID, cmd.ListenPort, 0)
+	inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, agent, cmd.ListenPort, cmd.ListenIP, 0)
 	if err != nil {
 		uc.logger.Errorw("failed to check existing forward rule", "agent_id", agentID, "port", cmd.ListenPort, "error", err)
 		return nil, fmt.Errorf("failed to check existing rule: %w", err)
@@ -419,6 +424,9 @@ func (uc *CreateForwardRuleUseCase) Execute(ctx context.Context, cmd CreateForwa
 		uc.logger.Errorw("failed to create forward rule entity", "error", err)
 		return nil, errors.NewValidationError(err.Error())
 	}
+	if err := rule.UpdateListenIP(cmd.ListenIP); err != nil {
+		return nil, errors.NewValidationError(err.Error())
+	}
 
 	// Set group IDs if provided
 	if len(groupIDs) > 0 {
@@ -454,6 +462,7 @@ func (uc *CreateForwardRuleUseCase) Execute(ctx context.Context, cmd CreateForwa
 		ExitAgentID:   rule.ExitAgentID(),
 		Name:          rule.Name(),
 		ListenPort:    rule.ListenPort(),
+		ListenIP:      rule.ListenIP(),
 		TargetAddress: rule.TargetAddress(),
 		TargetPort:    rule.TargetPort(),
 		TargetNodeID:  rule.TargetNodeID(),
@@ -679,9 +688,8 @@ const (
 // If the agent has allowed port ranges configured, picks from those ranges.
 // Otherwise, uses the default range (10000-60000).
 // Note: Port uniqueness is checked per-agent, not globally.
-func (uc *CreateForwardRuleUseCase) assignAvailablePort(ctx context.Context, agent *forward.ForwardAgent) (uint16, error) {
+func (uc *CreateForwardRuleUseCase) assignAvailablePort(ctx context.Context, agent *forward.ForwardAgent, listenIP string) (uint16, error) {
 	portRange := agent.AllowedPortRange()
-	agentID := agent.ID()
 
 	for range maxPortAssignAttempts {
 		var port uint16
@@ -702,7 +710,7 @@ func (uc *CreateForwardRuleUseCase) assignAvailablePort(ctx context.Context, age
 		}
 
 		// Check if port is already in use on this agent (including chain_port_config)
-		inUse, err := uc.repo.IsPortInUseByAgent(ctx, agentID, port, 0)
+		inUse, err := isPortInUseByAgentListenIP(ctx, uc.repo, agent, port, listenIP, 0)
 		if err != nil {
 			return 0, fmt.Errorf("failed to check port availability: %w", err)
 		}

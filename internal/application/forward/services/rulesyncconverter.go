@@ -56,6 +56,7 @@ func (c *RuleSyncConverter) Convert(ctx context.Context, rule *forward.ForwardRu
 		ID:         rule.SID(),
 		ShortID:    rule.SID(),
 		RuleType:   rule.RuleType().String(),
+		ListenIP:   rule.ListenIP(),
 		ListenPort: rule.ListenPort(),
 		Protocol:   rule.Protocol().String(),
 		BindIP:     rule.BindIP(),
@@ -114,6 +115,9 @@ func (c *RuleSyncConverter) Convert(ctx context.Context, rule *forward.ForwardRu
 	// only the "exit" role should receive bindIP.
 	if syncData.Role != "exit" && rule.RuleType().String() != "direct" {
 		syncData.BindIP = ""
+	}
+	if syncData.Role != "entry" {
+		syncData.ListenIP = ""
 	}
 
 	return syncData, nil

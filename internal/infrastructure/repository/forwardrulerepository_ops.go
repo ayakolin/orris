@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/orris-inc/orris/internal/domain/forward"
 	"github.com/orris-inc/orris/internal/infrastructure/persistence/models"
 	"github.com/orris-inc/orris/internal/shared/db"
 	"github.com/orris-inc/orris/internal/shared/errors"
@@ -80,6 +81,41 @@ func (r *ForwardRuleRepositoryImpl) IsPortInUseByAgent(ctx context.Context, agen
 	}
 
 	return count > 0, nil
+}
+
+// ListPortUsagesByAgent returns rules that use a port on the specified agent.
+func (r *ForwardRuleRepositoryImpl) ListPortUsagesByAgent(ctx context.Context, agentID uint, port uint16, excludeRuleID uint) ([]*forward.ForwardRule, error) {
+	var modelsList []*models.ForwardRuleModel
+	tx := db.GetTxFromContext(ctx, r.db)
+
+	query := tx.Model(&models.ForwardRuleModel{}).
+		Scopes(db.NotDeleted())
+
+	if excludeRuleID > 0 {
+		query = query.Where("id != ?", excludeRuleID)
+	}
+
+	err := query.Where(
+		"(agent_id = ? AND listen_port = ?) OR (chain_port_config IS NOT NULL AND CAST(JSON_EXTRACT(chain_port_config, CONCAT('$.\"', ?, '\"')) AS UNSIGNED) = ?)",
+		agentID, port, agentID, port,
+	).Find(&modelsList).Error
+
+	if err != nil {
+		r.logger.Errorw("failed to list port usages by agent",
+			"agent_id", agentID,
+			"port", port,
+			"exclude_rule_id", excludeRuleID,
+			"error", err,
+		)
+		return nil, fmt.Errorf("failed to list port usages: %w", err)
+	}
+
+	rules, err := r.mapper.ToEntities(modelsList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map port usage rules: %w", err)
+	}
+
+	return rules, nil
 }
 
 // UpdateTraffic updates the traffic counters for a rule.

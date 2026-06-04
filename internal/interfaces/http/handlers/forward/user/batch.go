@@ -161,6 +161,7 @@ func (h *Handler) BatchCreateRules(c *gin.Context) {
 			ChainPortConfig:    chainPortConfig,
 			Name:               r.Name,
 			ListenPort:         r.ListenPort,
+			ListenIP:           r.ListenIP,
 			TargetAddress:      r.TargetAddress,
 			TargetPort:         r.TargetPort,
 			TargetNodeSID:      targetNodeSID,

@@ -220,6 +220,7 @@ func (r *ForwardRuleRepositoryImpl) Update(ctx context.Context, rule *forward.Fo
 			"agent_id":           model.AgentID,
 			"subscription_id":    model.SubscriptionID,
 			"listen_port":        model.ListenPort,
+			"listen_ip":          model.ListenIP,
 			"target_address":     model.TargetAddress,
 			"target_port":        model.TargetPort,
 			"target_node_id":     model.TargetNodeID,

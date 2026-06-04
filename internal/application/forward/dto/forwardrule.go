@@ -24,30 +24,31 @@ type ExitAgentInput struct {
 // Note: ws_listen_port field has been removed (exit type deprecated).
 // Database column is kept for backward compatibility but not exposed in API.
 type ForwardRuleDTO struct {
-	ID                  string            `json:"id"`                                      // Stripe-style prefixed ID (e.g., "fr_xK9mP2vL3nQ")
-	AgentID             string            `json:"agent_id"`                                // Stripe-style prefixed ID (e.g., "fa_xK9mP2vL3nQ")
-	UserID              *uint             `json:"user_id,omitempty"`                       // user ID for user-owned rules (nil for admin-created rules)
-	RuleType            string            `json:"rule_type"`                               // direct, entry, chain, direct_chain
-	ExitAgentID         string            `json:"exit_agent_id,omitempty"`                 // for entry type (Stripe-style prefixed ID, mutually exclusive with ExitAgents)
-	ExitAgents          []ExitAgentDTO    `json:"exit_agents,omitempty"`                   // for entry type with load balancing (mutually exclusive with ExitAgentID)
-	LoadBalanceStrategy string            `json:"load_balance_strategy,omitempty"`         // failover (default), weighted
-	ChainAgentIDs       []string          `json:"chain_agent_ids,omitempty"`               // for chain and direct_chain types (ordered Stripe-style prefixed IDs)
-	ChainPortConfig     map[string]uint16 `json:"chain_port_config,omitempty"`             // for direct_chain type (Stripe-style agent ID -> listen port)
-	Name            string            `json:"name"`
-	ListenPort      uint16            `json:"listen_port"`
-	TargetAddress   string            `json:"target_address,omitempty"` // for all types (exit role only for chain/direct_chain)
-	TargetPort      uint16            `json:"target_port,omitempty"`    // for all types (exit role only for chain/direct_chain)
-	TargetNodeID    string            `json:"target_node_id,omitempty"` // Stripe-style prefixed Node ID (e.g., "node_xK9mP2vL3nQ")
-	BindIP          string            `json:"bind_ip,omitempty"`        // Bind IP address for outbound connections
-	IPVersion       string            `json:"ip_version"`               // auto, ipv4, ipv6
-	Protocol        string            `json:"protocol"`
-	Status          string            `json:"status"`
-	Remark          string            `json:"remark"`
-	UploadBytes     int64             `json:"upload_bytes"`   // traffic with multiplier already applied
-	DownloadBytes   int64             `json:"download_bytes"` // traffic with multiplier already applied
-	TotalBytes      int64             `json:"total_bytes"`    // traffic with multiplier already applied
-	CreatedAt       string            `json:"created_at"`
-	UpdatedAt       string            `json:"updated_at"`
+	ID                  string            `json:"id"`                              // Stripe-style prefixed ID (e.g., "fr_xK9mP2vL3nQ")
+	AgentID             string            `json:"agent_id"`                        // Stripe-style prefixed ID (e.g., "fa_xK9mP2vL3nQ")
+	UserID              *uint             `json:"user_id,omitempty"`               // user ID for user-owned rules (nil for admin-created rules)
+	RuleType            string            `json:"rule_type"`                       // direct, entry, chain, direct_chain
+	ExitAgentID         string            `json:"exit_agent_id,omitempty"`         // for entry type (Stripe-style prefixed ID, mutually exclusive with ExitAgents)
+	ExitAgents          []ExitAgentDTO    `json:"exit_agents,omitempty"`           // for entry type with load balancing (mutually exclusive with ExitAgentID)
+	LoadBalanceStrategy string            `json:"load_balance_strategy,omitempty"` // failover (default), weighted
+	ChainAgentIDs       []string          `json:"chain_agent_ids,omitempty"`       // for chain and direct_chain types (ordered Stripe-style prefixed IDs)
+	ChainPortConfig     map[string]uint16 `json:"chain_port_config,omitempty"`     // for direct_chain type (Stripe-style agent ID -> listen port)
+	Name                string            `json:"name"`
+	ListenPort          uint16            `json:"listen_port"`
+	ListenIP            string            `json:"listen_ip,omitempty"`
+	TargetAddress       string            `json:"target_address,omitempty"` // for all types (exit role only for chain/direct_chain)
+	TargetPort          uint16            `json:"target_port,omitempty"`    // for all types (exit role only for chain/direct_chain)
+	TargetNodeID        string            `json:"target_node_id,omitempty"` // Stripe-style prefixed Node ID (e.g., "node_xK9mP2vL3nQ")
+	BindIP              string            `json:"bind_ip,omitempty"`        // Bind IP address for outbound connections
+	IPVersion           string            `json:"ip_version"`               // auto, ipv4, ipv6
+	Protocol            string            `json:"protocol"`
+	Status              string            `json:"status"`
+	Remark              string            `json:"remark"`
+	UploadBytes         int64             `json:"upload_bytes"`   // traffic with multiplier already applied
+	DownloadBytes       int64             `json:"download_bytes"` // traffic with multiplier already applied
+	TotalBytes          int64             `json:"total_bytes"`    // traffic with multiplier already applied
+	CreatedAt           string            `json:"created_at"`
+	UpdatedAt           string            `json:"updated_at"`
 
 	// Traffic multiplier fields
 	TrafficMultiplier          *float64 `json:"traffic_multiplier,omitempty"`
@@ -110,12 +111,12 @@ type ForwardRuleDTO struct {
 	// Internal fields for mapping (not exposed in JSON)
 	internalAddressPreference vo.AddressPreference `json:"-"` // address preference for next hop resolution
 	internalAgentID           uint                 `json:"-"`
-	internalExitAgentID     uint             `json:"-"`
-	internalExitAgents      []vo.AgentWeight `json:"-"` // internal exit agents for lookup
-	internalChainAgents     []uint           `json:"-"` // internal chain agent IDs for lookup
-	internalChainPortConfig map[uint]uint16  `json:"-"` // internal chain port config for lookup
-	internalTargetNode      *uint            `json:"-"` // internal node ID for lookup
-	internalGroupIDs        []uint           `json:"-"` // internal resource group IDs for lookup
+	internalExitAgentID       uint                 `json:"-"`
+	internalExitAgents        []vo.AgentWeight     `json:"-"` // internal exit agents for lookup
+	internalChainAgents       []uint               `json:"-"` // internal chain agent IDs for lookup
+	internalChainPortConfig   map[uint]uint16      `json:"-"` // internal chain port config for lookup
+	internalTargetNode        *uint                `json:"-"` // internal node ID for lookup
+	internalGroupIDs          []uint               `json:"-"` // internal resource group IDs for lookup
 }
 
 // ToForwardRuleDTO converts a domain forward rule to DTO.
@@ -154,6 +155,7 @@ func ToForwardRuleDTO(rule *forward.ForwardRule) *ForwardRuleDTO {
 		LoadBalanceStrategy:        loadBalanceStrategy,
 		Name:                       rule.Name(),
 		ListenPort:                 rule.ListenPort(),
+		ListenIP:                   rule.ListenIP(),
 		TargetAddress:              rule.TargetAddress(),
 		TargetPort:                 rule.TargetPort(),
 		TargetNodeID:               "", // populated later via PopulateTargetNodeSID

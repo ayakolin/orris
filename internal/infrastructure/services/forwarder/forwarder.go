@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,6 +57,7 @@ type Manager struct {
 // ForwardingRule represents an active forwarding rule.
 type ForwardingRule struct {
 	ID               uint
+	ListenIP         string
 	ListenPort       uint16
 	TargetAddress    string
 	TargetPort       uint16
@@ -106,7 +108,7 @@ func (m *Manager) effectiveMaxTCPConns() int {
 }
 
 // Start starts forwarding for a rule.
-func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, targetPort uint16, protocolType string, blockedProtocols []string) error {
+func (m *Manager) Start(ruleID uint, listenIP string, listenPort uint16, targetAddress string, targetPort uint16, protocolType string, blockedProtocols []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -119,6 +121,7 @@ func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, ta
 	ctx, cancel := context.WithCancel(context.Background())
 	rule := &ForwardingRule{
 		ID:            ruleID,
+		ListenIP:      listenIP,
 		ListenPort:    listenPort,
 		TargetAddress: targetAddress,
 		TargetPort:    targetPort,
@@ -137,13 +140,14 @@ func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, ta
 	}
 
 	target := net.JoinHostPort(targetAddress, fmt.Sprintf("%d", targetPort))
+	listenAddress := buildListenAddress(listenIP, listenPort)
 
 	// Start TCP forwarding
 	if protocolType == "tcp" || protocolType == "both" {
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", listenPort))
+		listener, err := net.Listen("tcp", listenAddress)
 		if err != nil {
 			cancel()
-			return fmt.Errorf("failed to listen on TCP port %d: %w", listenPort, err)
+			return fmt.Errorf("failed to listen on TCP address %s: %w", listenAddress, err)
 		}
 		rule.tcpListener = listener
 		goroutine.SafeGo(m.logger, "forwarder-handle-tcp", func() {
@@ -153,7 +157,7 @@ func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, ta
 
 	// Start UDP forwarding
 	if protocolType == "udp" || protocolType == "both" {
-		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", listenPort))
+		addr, err := net.ResolveUDPAddr("udp", listenAddress)
 		if err != nil {
 			if rule.tcpListener != nil {
 				rule.tcpListener.Close()
@@ -168,7 +172,7 @@ func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, ta
 				rule.tcpListener.Close()
 			}
 			cancel()
-			return fmt.Errorf("failed to listen on UDP port %d: %w", listenPort, err)
+			return fmt.Errorf("failed to listen on UDP address %s: %w", listenAddress, err)
 		}
 		rule.udpConn = conn
 		goroutine.SafeGo(m.logger, "forwarder-handle-udp", func() {
@@ -181,11 +185,20 @@ func (m *Manager) Start(ruleID uint, listenPort uint16, targetAddress string, ta
 
 	m.logger.Infow("forwarding started",
 		"rule_id", ruleID,
+		"listen_ip", listenIP,
 		"listen_port", listenPort,
 		"target", target,
 		"protocol", protocolType)
 
 	return nil
+}
+
+func buildListenAddress(listenIP string, listenPort uint16) string {
+	ip := strings.TrimSpace(listenIP)
+	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsUnspecified() {
+		ip = ""
+	}
+	return net.JoinHostPort(ip, fmt.Sprintf("%d", listenPort))
 }
 
 // Stop stops forwarding for a rule.
@@ -549,6 +562,7 @@ func (m *Manager) StartEnabledRules(ctx context.Context) error {
 	for _, rule := range rules {
 		if err := m.Start(
 			rule.ID(),
+			rule.ListenIP(),
 			rule.ListenPort(),
 			rule.TargetAddress(),
 			rule.TargetPort(),

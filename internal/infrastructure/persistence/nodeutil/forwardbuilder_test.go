@@ -558,6 +558,7 @@ func mustCreateDirectRule(t *testing.T, agentID uint, name string, listenPort ui
 		vo.TunnelTypeWS,               // tunnelType
 		name,                          // name
 		listenPort,                    // listenPort
+		"",                            // listenIP
 		targetAddr,                    // targetAddress
 		targetPort,                    // targetPort
 		nil,                           // targetNodeID
@@ -603,6 +604,7 @@ func mustCreateDirectRuleWithTargetNode(t *testing.T, agentID uint, name string,
 		vo.TunnelTypeWS,               // tunnelType
 		name,                          // name
 		listenPort,                    // listenPort
+		"",                            // listenIP
 		"",                            // targetAddress
 		0,                             // targetPort
 		&targetNodeID,                 // targetNodeID
@@ -648,6 +650,7 @@ func mustCreateExternalRule(t *testing.T, serverAddr string, listenPort uint16, 
 		vo.TunnelTypeWS,               // tunnelType
 		"external-rule",               // name
 		listenPort,                    // listenPort
+		"",                            // listenIP
 		"",                            // targetAddress
 		0,                             // targetPort
 		&targetNodeID,                 // targetNodeID

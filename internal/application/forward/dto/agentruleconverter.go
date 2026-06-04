@@ -284,6 +284,9 @@ func (c *AgentRuleConverter) populateRoleSpecificInfo(ctx context.Context, rule 
 	if ruleDTO.Role != "exit" && ruleType != "direct" {
 		ruleDTO.BindIP = ""
 	}
+	if ruleDTO.Role != "entry" {
+		ruleDTO.ListenIP = ""
+	}
 }
 
 // populateDirectRuleInfo populates info for direct rules.

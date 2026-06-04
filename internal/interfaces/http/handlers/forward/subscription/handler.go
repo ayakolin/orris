@@ -64,6 +64,7 @@ type CreateForwardRuleRequest struct {
 	ChainPortConfig   map[string]uint16 `json:"chain_port_config,omitempty" example:"{\"fa_xK9mP2vL3nQ\":8080,\"fa_yL8nQ3wM4oR\":9090}"`
 	Name              string            `json:"name" binding:"required" example:"MySQL-Forward"`
 	ListenPort        uint16            `json:"listen_port,omitempty" example:"13306"`
+	ListenIP          string            `json:"listen_ip,omitempty" example:"127.0.0.1"`
 	TargetAddress     string            `json:"target_address,omitempty" example:"192.168.1.100"`
 	TargetPort        uint16            `json:"target_port,omitempty" example:"3306"`
 	TargetNodeID      string            `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
@@ -86,6 +87,7 @@ type UpdateForwardRuleRequest struct {
 	TunnelHops        *int              `json:"tunnel_hops,omitempty" binding:"omitempty,gte=0,lte=10" example:"2"`
 	TunnelType        *string           `json:"tunnel_type,omitempty" binding:"omitempty,oneof=ws tls ws_smux tls_smux" example:"ws"`
 	ListenPort        *uint16           `json:"listen_port,omitempty" example:"13307"`
+	ListenIP          *string           `json:"listen_ip,omitempty" example:"127.0.0.1"`
 	TargetAddress     *string           `json:"target_address,omitempty" example:"192.168.1.101"`
 	TargetPort        *uint16           `json:"target_port,omitempty" example:"3307"`
 	TargetNodeID      *string           `json:"target_node_id,omitempty" example:"node_xK9mP2vL3nQ"`
@@ -108,7 +110,6 @@ type ForwardRuleOrder struct {
 	RuleID    string `json:"rule_id" binding:"required" example:"fr_xK9mP2vL3nQ"`
 	SortOrder int    `json:"sort_order" binding:"gte=0" example:"100"`
 }
-
 
 // CreateRule handles POST /subscriptions/:sid/forward-rules
 func (h *Handler) CreateRule(c *gin.Context) {
@@ -206,6 +207,7 @@ func (h *Handler) CreateRule(c *gin.Context) {
 		ChainPortConfig:    chainPortConfig,
 		Name:               req.Name,
 		ListenPort:         req.ListenPort,
+		ListenIP:           req.ListenIP,
 		TargetAddress:      req.TargetAddress,
 		TargetPort:         req.TargetPort,
 		TargetNodeSID:      targetNodeSID,
@@ -391,6 +393,7 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 		ChainAgentShortIDs: chainAgentShortIDs,
 		ChainPortConfig:    chainPortConfig,
 		ListenPort:         req.ListenPort,
+		ListenIP:           req.ListenIP,
 		TargetAddress:      req.TargetAddress,
 		TargetPort:         req.TargetPort,
 		TargetNodeSID:      targetNodeSID,
