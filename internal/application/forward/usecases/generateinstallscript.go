@@ -13,7 +13,7 @@ import (
 
 const (
 	// InstallScriptURL is the URL of the install script hosted on GitHub
-	InstallScriptURL = "https://raw.githubusercontent.com/orris-inc/orris-client/main/scripts/install.sh"
+	InstallScriptURL = "https://raw.githubusercontent.com/ayakolin/orris-client/main/scripts/install.sh"
 )
 
 const defaultForwardAgentInstanceName = "default"

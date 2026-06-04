@@ -317,7 +317,7 @@ func (c *Container) initNode() {
 
 	// Initialize GitHub release services for version checking
 	c.forwardAgentReleaseService = services.NewGitHubReleaseService(services.GitHubRepoConfig{
-		Owner: "orris-inc", Repo: "orris-client", AssetPrefix: "orris-client",
+		Owner: "ayakolin", Repo: "orris-client", AssetPrefix: "orris-client",
 	}, log)
 	c.nodeAgentReleaseService = services.NewGitHubReleaseService(services.GitHubRepoConfig{
 		Owner: "orris-inc", Repo: "orrisp", AssetPrefix: "orrisp",

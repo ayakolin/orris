@@ -171,6 +171,7 @@ func (uc *GetRuleOverallStatusUseCase) buildAgentStatuses(
 					agentStatus.SyncStatus = ruleStatus.SyncStatus
 					agentStatus.RunStatus = ruleStatus.RunStatus
 					agentStatus.ListenPort = ruleStatus.ListenPort
+					agentStatus.ListenIP = ruleStatus.ListenIP
 					agentStatus.Connections = ruleStatus.Connections
 					agentStatus.ErrorMessage = ruleStatus.ErrorMessage
 					agentStatus.SyncedAt = ruleStatus.SyncedAt
