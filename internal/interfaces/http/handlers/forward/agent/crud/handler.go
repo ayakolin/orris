@@ -371,7 +371,7 @@ func (h *Handler) GetAgentStatus(c *gin.Context) {
 // Query params:
 //   - token (optional): API token. If not provided, uses agent's current stored token
 //   - server_url (optional): Override the default server URL
-//   - name (optional): instance name for multi-instance install. Empty means default single-instance.
+//   - name (optional): instance name. Empty uses the agent SID; "default" keeps the legacy default instance.
 func (h *Handler) GetInstallScript(c *gin.Context) {
 	shortID, err := utils.ParseSIDParam(c, "id", id.PrefixForwardAgent, "forward agent")
 	if err != nil {
@@ -388,7 +388,7 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 		serverURL = h.serverURL
 	}
 
-	// Optional multi-instance name; empty means default install.
+	// Optional instance name; empty means the use case will use the agent SID.
 	name := c.Query("name")
 
 	query := usecases.GenerateInstallScriptQuery{
@@ -446,4 +446,3 @@ func (h *Handler) GetRuleOverallStatus(c *gin.Context) {
 
 	utils.SuccessResponse(c, http.StatusOK, "", result)
 }
-
