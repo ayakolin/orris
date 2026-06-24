@@ -116,11 +116,30 @@ func (c *RuleSyncConverter) Convert(ctx context.Context, rule *forward.ForwardRu
 	if syncData.Role != "exit" && rule.RuleType().String() != "direct" {
 		syncData.BindIP = ""
 	}
-	if syncData.Role != "entry" {
+	if !usesRuleListenIP(syncData) {
 		syncData.ListenIP = ""
 	}
 
 	return syncData, nil
+}
+
+func usesRuleListenIP(data *dto.RuleSyncData) bool {
+	if data.ListenPort == 0 {
+		return false
+	}
+
+	switch data.RuleType {
+	case "direct":
+		return true
+	case "entry":
+		return data.Role == "entry"
+	case "chain":
+		return data.Role == "entry" || data.HopMode == "direct" || data.InboundMode == "direct"
+	case "direct_chain":
+		return true
+	default:
+		return data.Role == "entry"
+	}
 }
 
 // convertDirectRule handles direct rule type conversion.
