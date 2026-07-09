@@ -86,22 +86,31 @@ func (b BillingCycle) Days() int {
 	return days
 }
 
+// NextBillingDate returns the end of a billing period that starts at `from`.
+//
+// It uses fixed day counts (not calendar arithmetic) so period lengths stay
+// consistent and do not "drift" when a period starts on a month boundary
+// (e.g. Jan 31 -> Feb 28 -> Mar 28). This is the single canonical period-length
+// calculation: subscription creation, plan changes, and renewal all go through
+// it, so the same cycle always yields the same period length.
 func (b BillingCycle) NextBillingDate(from time.Time) time.Time {
 	switch b {
 	case BillingCycleWeekly:
-		return from.AddDate(0, 0, 7)
+		return from.Add(7 * 24 * time.Hour)
 	case BillingCycleMonthly:
-		return from.AddDate(0, 1, 0)
+		return from.Add(31 * 24 * time.Hour)
 	case BillingCycleQuarterly:
-		return from.AddDate(0, 3, 0)
+		return from.Add(93 * 24 * time.Hour) // 31 * 3
 	case BillingCycleSemiAnnual:
-		return from.AddDate(0, 6, 0)
+		return from.Add(180 * 24 * time.Hour)
 	case BillingCycleYearly:
-		return from.AddDate(1, 0, 0)
+		return from.Add(365 * 24 * time.Hour)
 	case BillingCycleLifetime:
-		return time.Time{}
+		// Effectively never expires. Use Jan 1 (not Dec 31 23:59:59) to avoid
+		// year overflow when converting to eastern timezones.
+		return time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	default:
-		return time.Time{}
+		return from.Add(31 * 24 * time.Hour)
 	}
 }
 

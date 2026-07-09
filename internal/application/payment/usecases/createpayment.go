@@ -260,6 +260,11 @@ func (uc *CreatePaymentUseCase) createUSDTPayment(ctx context.Context, paymentOr
 		// Set USDT-specific info on the payment (using raw uint64 amount)
 		paymentOrder.SetUSDTInfo(usdtInfo.ChainType, usdtInfo.USDTAmountRaw, usdtInfo.ReceivingAddress, usdtInfo.ExchangeRate)
 
+		// Align payment expiry with the configured USDT TTL / suffix reservation
+		// window so a legitimate late on-chain payment is still polled for
+		// confirmation instead of being expired at the fixed default.
+		paymentOrder.SetExpiry(usdtInfo.ExpiresAt)
+
 		// Update the payment with USDT info
 		if updateErr := uc.paymentRepo.Update(txCtx, paymentOrder); updateErr != nil {
 			uc.logger.Errorw("failed to update payment with USDT info", "error", updateErr)

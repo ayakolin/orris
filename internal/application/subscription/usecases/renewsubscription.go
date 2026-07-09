@@ -6,6 +6,7 @@ import (
 
 	"github.com/orris-inc/orris/internal/domain/subscription"
 	vo "github.com/orris-inc/orris/internal/domain/subscription/valueobjects"
+	"github.com/orris-inc/orris/internal/shared/biztime"
 	apperrors "github.com/orris-inc/orris/internal/shared/errors"
 	"github.com/orris-inc/orris/internal/shared/logger"
 )
@@ -109,7 +110,15 @@ func (uc *RenewSubscriptionUseCase) Execute(ctx context.Context, cmd RenewSubscr
 		return fmt.Errorf("pricing not found for selected billing cycle")
 	}
 
-	newEndDate := billingCycle.NextBillingDate(sub.EndDate())
+	// Base the new period on whichever is later: the current end date (extends an
+	// active subscription without losing paid time) or now (for a subscription
+	// that already lapsed, so the renewed period lands in the future and service
+	// is actually restored instead of remaining expired).
+	renewalBase := sub.EndDate()
+	if now := biztime.NowUTC(); renewalBase.Before(now) {
+		renewalBase = now
+	}
+	newEndDate := billingCycle.NextBillingDate(renewalBase)
 
 	if err := sub.Renew(newEndDate); err != nil {
 		uc.logger.Errorw("failed to renew subscription", "error", err, "subscription_id", cmd.SubscriptionID)

@@ -602,6 +602,23 @@ func TestSubscription_Renew_FromPastDue(t *testing.T) {
 	assert.Equal(t, newEnd, sub.EndDate())
 }
 
+// A subscription that lapsed more than one billing cycle ago must not be
+// "renewed" to a still-past end date (old end + one cycle), which would leave it
+// effectively expired despite an active status.
+func TestSubscription_Renew_RejectsPastEndDateForLongExpired(t *testing.T) {
+	now := time.Now().UTC()
+	// Expired three months ago.
+	sub := reconstructSubscription(t, vo.StatusExpired, now.AddDate(-1, 0, 0), now.AddDate(0, -3, 0))
+	// old end + one month is still ~two months in the past.
+	newEnd := sub.EndDate().AddDate(0, 1, 0)
+
+	err := sub.Renew(newEnd)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "future")
+	assert.Equal(t, vo.StatusExpired, sub.Status(), "status must not flip to active on a failed renewal")
+}
+
 func TestSubscription_Renew_EndDateBeforeCurrent(t *testing.T) {
 	sub := newActiveSubscription(t)
 	oldEnd := sub.EndDate()

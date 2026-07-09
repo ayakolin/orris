@@ -10,6 +10,7 @@ import (
 	"github.com/orris-inc/orris/internal/application/payment/exchangerate"
 	"github.com/orris-inc/orris/internal/application/payment/suffixalloc"
 	vo "github.com/orris-inc/orris/internal/domain/payment/valueobjects"
+	"github.com/orris-inc/orris/internal/shared/biztime"
 	"github.com/orris-inc/orris/internal/shared/logger"
 )
 
@@ -25,7 +26,8 @@ type USDTPaymentInfo struct {
 	ChainType        vo.ChainType
 	USDTAmountRaw    uint64 // USDT amount in smallest unit (1 USDT = 1000000)
 	ReceivingAddress string
-	ExchangeRate     float64 // Exchange rate at time of payment (for display only)
+	ExchangeRate     float64   // Exchange rate at time of payment (for display only)
+	ExpiresAt        time.Time // When the payment/suffix reservation expires (from configured TTL)
 }
 
 // USDTAmountFloat returns the USDT amount as float64 for display purposes
@@ -117,6 +119,7 @@ func (g *USDTGateway) CreateUSDTPayment(ctx context.Context, paymentID uint, cny
 
 	// Get TTL from config (with locking)
 	ttl := g.getPaymentTTL()
+	expiresAt := biztime.NowUTC().Add(ttl)
 
 	// Allocate a unique suffix from the address pool
 	allocation, err := g.suffixAllocator.Allocate(ctx, chainType, validAddresses, baseAmountRaw, paymentID, ttl)
@@ -147,6 +150,7 @@ func (g *USDTGateway) CreateUSDTPayment(ctx context.Context, paymentID uint, cny
 		USDTAmountRaw:    allocation.FullAmountRaw,
 		ReceivingAddress: allocation.ReceivingAddress,
 		ExchangeRate:     rate,
+		ExpiresAt:        expiresAt,
 	}, nil
 }
 
