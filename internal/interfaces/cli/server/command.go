@@ -139,23 +139,36 @@ func run(cmd *cobra.Command, args []string) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start HTTP Server in background
+	// Start HTTP Server in background.
+	//
+	// A failed ListenAndServe (e.g. the port is already in use during a rolling
+	// restart) MUST terminate the process, not be swallowed. Calling Fatalw here
+	// would panic, and SafeGo's recover would trap that panic — leaving the
+	// process alive with no listener while looking healthy to a liveness probe.
+	// Instead, surface the error to the main goroutine so it returns non-zero.
+	serverErr := make(chan error, 1)
 	goroutine.SafeGo(log, "http-server", func() {
 		log.Infow("HTTP server listening",
 			"address", cfg.Server.GetAddr(),
 			"mode", cfg.Server.Mode)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalw("failed to start server", "error", err)
+			serverErr <- err
 		}
 	})
 
-	// Wait for shutdown signal
+	// Wait for a shutdown signal or a fatal server error.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 
-	log.Infow("shutting down server")
+	select {
+	case <-quit:
+		log.Infow("shutting down server")
+	case err := <-serverErr:
+		log.Errorw("HTTP server failed to start", "error", err)
+		router.Shutdown()
+		return fmt.Errorf("http server failed to start: %w", err)
+	}
 
 	// Shutdown router first (stops scheduler, closes SSE connections, flushes traffic data, etc.)
 	// This must happen before HTTP server shutdown to allow connections to close gracefully

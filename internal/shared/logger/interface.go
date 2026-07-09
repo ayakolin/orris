@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 )
 
 // isContextCancellation reports whether err is a context cancellation or
@@ -91,7 +92,11 @@ func (l *slogLogger) Error(msg string, args ...any) {
 
 func (l *slogLogger) Fatal(msg string, args ...any) {
 	l.logger.Error(msg, args...)
-	panic("fatal error")
+	// A fatal error must terminate the process. Using os.Exit (not panic) keeps
+	// this consistent with the package-level logger.Fatal and, crucially, cannot
+	// be trapped by a recover() such as the one in goroutine.SafeGo — which would
+	// otherwise leave the process running in a broken state.
+	os.Exit(1)
 }
 
 func (l *slogLogger) With(args ...any) Interface {
@@ -129,5 +134,6 @@ func (l *slogLogger) Errorw(msg string, keysAndValues ...interface{}) {
 
 func (l *slogLogger) Fatalw(msg string, keysAndValues ...interface{}) {
 	l.logger.Error(msg, keysAndValues...)
-	panic("fatal error")
+	// Terminate the process. See Fatal for why this is os.Exit, not panic.
+	os.Exit(1)
 }
