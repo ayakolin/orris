@@ -22,6 +22,7 @@ type User struct {
 	createdAt                  time.Time
 	updatedAt                  time.Time
 	version                    int
+	originalVersion            int // version when loaded from DB, for optimistic locking
 	passwordHash               *string
 	emailVerified              bool
 	emailVerificationToken     *string
@@ -80,15 +81,16 @@ func ReconstructUser(id uint, sid string, email *vo.Email, name *vo.Name, role a
 	}
 
 	return &User{
-		id:        id,
-		sid:       sid,
-		email:     email,
-		name:      name,
-		role:      role,
-		status:    status,
-		createdAt: createdAt,
-		updatedAt: updatedAt,
-		version:   version,
+		id:              id,
+		sid:             sid,
+		email:           email,
+		name:            name,
+		role:            role,
+		status:          status,
+		createdAt:       createdAt,
+		updatedAt:       updatedAt,
+		version:         version,
+		originalVersion: version,
 	}, nil
 }
 
@@ -197,6 +199,12 @@ func (u *User) UpdatedAt() time.Time {
 // Version returns the aggregate version for optimistic locking
 func (u *User) Version() int {
 	return u.version
+}
+
+// OriginalVersion returns the version the user had when loaded from the
+// database. Used for optimistic locking in the repository Update.
+func (u *User) OriginalVersion() int {
+	return u.originalVersion
 }
 
 // SetID sets the user ID (only for persistence layer use)

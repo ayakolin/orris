@@ -170,8 +170,9 @@ func (r *UserRepository) Update(ctx context.Context, userEntity *user.User) erro
 		return fmt.Errorf("failed to map user entity: %w", err)
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.UserModel{}).
-		Where("id = ?", model.ID).
+	q := r.db.WithContext(ctx)
+	result := q.Model(&models.UserModel{}).
+		Where("id = ? AND version = ?", model.ID, userEntity.OriginalVersion()).
 		Updates(map[string]interface{}{
 			"email":                         model.Email,
 			"name":                          model.Name,
@@ -195,8 +196,9 @@ func (r *UserRepository) Update(ctx context.Context, userEntity *user.User) erro
 		return fmt.Errorf("failed to update user: %w", result.Error)
 	}
 
-	// Note: RowsAffected may be 0 when updated values are identical to existing values.
-	// This is expected MySQL behavior and should not be treated as "user not found".
+	if result.RowsAffected == 0 {
+		return classifyOptimisticUpdate(q, &models.UserModel{}, model.ID, userEntity.OriginalVersion(), "user")
+	}
 
 	r.logger.Infow("user updated successfully", "id", model.ID)
 	return nil

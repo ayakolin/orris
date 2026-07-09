@@ -123,8 +123,9 @@ func (r *PlanRepositoryImpl) Update(ctx context.Context, plan *subscription.Plan
 		return fmt.Errorf("failed to convert plan to model: %w", err)
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.PlanModel{}).
-		Where("id = ?", plan.ID()).
+	q := r.db.WithContext(ctx)
+	result := q.Model(&models.PlanModel{}).
+		Where("id = ? AND version = ?", plan.ID(), plan.OriginalVersion()).
 		Updates(map[string]interface{}{
 			"name":        model.Name,
 			"description": model.Description,
@@ -143,7 +144,9 @@ func (r *PlanRepositoryImpl) Update(ctx context.Context, plan *subscription.Plan
 		return fmt.Errorf("failed to update subscription plan: %w", result.Error)
 	}
 
-	// Note: RowsAffected may be 0 when updated values are identical to existing values.
+	if result.RowsAffected == 0 {
+		return classifyOptimisticUpdate(q, &models.PlanModel{}, plan.ID(), plan.OriginalVersion(), "subscription plan")
+	}
 
 	r.logger.Infow("subscription plan updated successfully", "plan_id", plan.ID())
 	return nil

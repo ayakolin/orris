@@ -26,12 +26,13 @@ type Plan struct {
 	planType    vo.PlanType
 	features    *vo.PlanFeatures
 	nodeLimit   *int // maximum number of user nodes (nil or 0 = unlimited)
-	isPublic    bool
-	sortOrder   int
-	metadata    map[string]interface{}
-	version     int
-	createdAt   time.Time
-	updatedAt   time.Time
+	isPublic        bool
+	sortOrder       int
+	metadata        map[string]interface{}
+	version         int
+	originalVersion int // version when loaded from DB, for optimistic locking
+	createdAt       time.Time
+	updatedAt       time.Time
 }
 
 func NewPlan(name, slug, description string, planType vo.PlanType) (*Plan, error) {
@@ -113,12 +114,13 @@ func ReconstructPlan(id uint, sid string, name, slug, description string,
 		planType:    pt,
 		features:    features,
 		nodeLimit:   nodeLimit,
-		isPublic:    isPublic,
-		sortOrder:   sortOrder,
-		metadata:    metadata,
-		version:     version,
-		createdAt:   createdAt,
-		updatedAt:   updatedAt,
+		isPublic:        isPublic,
+		sortOrder:       sortOrder,
+		metadata:        metadata,
+		version:         version,
+		originalVersion: version,
+		createdAt:       createdAt,
+		updatedAt:       updatedAt,
 	}, nil
 }
 
@@ -199,6 +201,12 @@ func (p *Plan) UpdatedAt() time.Time {
 // Version returns the aggregate version for optimistic locking
 func (p *Plan) Version() int {
 	return p.version
+}
+
+// OriginalVersion returns the version the plan had when loaded from the
+// database. Used for optimistic locking in the repository Update.
+func (p *Plan) OriginalVersion() int {
+	return p.originalVersion
 }
 
 // IncrementVersion increments the version for optimistic locking

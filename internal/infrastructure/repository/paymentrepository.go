@@ -45,9 +45,10 @@ func (r *PaymentRepository) Create(ctx context.Context, p *payment.Payment) erro
 func (r *PaymentRepository) Update(ctx context.Context, p *payment.Payment) error {
 	model := r.mapper.ToModel(p)
 
-	result := db.GetTxFromContext(ctx, r.db).
+	tx := db.GetTxFromContext(ctx, r.db)
+	result := tx.
 		Model(&models.PaymentModel{}).
-		Where("id = ?", model.ID).
+		Where("id = ? AND version = ?", model.ID, p.OriginalVersion()).
 		Updates(map[string]interface{}{
 			"payment_status":   model.PaymentStatus,
 			"transaction_id":   model.TransactionID,
@@ -72,7 +73,11 @@ func (r *PaymentRepository) Update(ctx context.Context, p *payment.Payment) erro
 		return fmt.Errorf("failed to update payment: %w", result.Error)
 	}
 
-	// Note: RowsAffected may be 0 when updated values are identical to existing values.
+	if result.RowsAffected == 0 {
+		// Optimistic-lock miss: either a concurrent modification, a missing row,
+		// or an idempotent no-op. classifyOptimisticUpdate distinguishes them.
+		return classifyOptimisticUpdate(tx, &models.PaymentModel{}, model.ID, p.OriginalVersion(), "payment")
+	}
 
 	return nil
 }

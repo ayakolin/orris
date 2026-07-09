@@ -357,7 +357,7 @@ func (r *SubscriptionRepositoryImpl) Update(ctx context.Context, subscriptionEnt
 
 	tx := db.GetTxFromContext(ctx, r.db)
 	result := tx.Model(model).
-		Where("id = ?", model.ID).
+		Where("id = ? AND version = ?", model.ID, subscriptionEntity.OriginalVersion()).
 		Updates(map[string]interface{}{
 			"user_id":                 model.UserID,
 			"plan_id":                 model.PlanID,
@@ -383,7 +383,9 @@ func (r *SubscriptionRepositoryImpl) Update(ctx context.Context, subscriptionEnt
 		return fmt.Errorf("failed to update subscription: %w", result.Error)
 	}
 
-	// Note: RowsAffected may be 0 when updated values are identical to existing values.
+	if result.RowsAffected == 0 {
+		return classifyOptimisticUpdate(tx, &models.SubscriptionModel{}, model.ID, subscriptionEntity.OriginalVersion(), "subscription")
+	}
 
 	r.logger.Infow("subscription updated successfully", "id", model.ID)
 	return nil

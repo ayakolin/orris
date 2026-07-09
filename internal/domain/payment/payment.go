@@ -66,9 +66,10 @@ type Payment struct {
 
 	metadata map[string]interface{}
 
-	version   int
-	createdAt time.Time
-	updatedAt time.Time
+	version         int
+	originalVersion int // version when loaded from DB, for optimistic locking
+	createdAt       time.Time
+	updatedAt       time.Time
 }
 
 func NewPayment(subscriptionID, userID uint, amount vo.Money, method vo.PaymentMethod) (*Payment, error) {
@@ -225,6 +226,12 @@ func (p *Payment) Version() int {
 	return p.version
 }
 
+// OriginalVersion returns the version the payment had when loaded from the
+// database. Used for optimistic locking in the repository Update.
+func (p *Payment) OriginalVersion() int {
+	return p.originalVersion
+}
+
 func (p *Payment) CreatedAt() time.Time {
 	return p.createdAt
 }
@@ -270,6 +277,18 @@ func (p *Payment) SetUSDTInfo(chainType vo.ChainType, usdtAmountRaw uint64, rece
 	p.usdtAmountRaw = &usdtAmountRaw
 	p.receivingAddress = &receivingAddress
 	p.exchangeRate = &exchangeRate
+	p.updatedAt = biztime.NowUTC()
+}
+
+// SetExpiry overrides the payment expiry. Used for USDT payments whose lifetime
+// is governed by the configurable payment TTL (and the on-chain suffix
+// reservation window) rather than the default fixed expiry, so a legitimate
+// late payment within the configured window is still polled for confirmation.
+func (p *Payment) SetExpiry(expiredAt time.Time) {
+	if expiredAt.IsZero() {
+		return
+	}
+	p.expiredAt = expiredAt
 	p.updatedAt = biztime.NowUTC()
 }
 
@@ -346,6 +365,7 @@ func ReconstructPaymentWithParams(params PaymentReconstructParams) *Payment {
 		confirmedAt:      params.ConfirmedAt,
 		metadata:         params.Metadata,
 		version:          params.Version,
+		originalVersion:  params.Version,
 		createdAt:        params.CreatedAt,
 		updatedAt:        params.UpdatedAt,
 	}

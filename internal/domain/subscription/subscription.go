@@ -75,6 +75,7 @@ type Subscription struct {
 	trafficUsedAdjustment int64   // adjustment to actual usage (default 0)
 	metadata              map[string]interface{}
 	version               int
+	originalVersion       int // version when loaded from DB, for optimistic locking
 	createdAt             time.Time
 	updatedAt             time.Time
 }
@@ -193,6 +194,7 @@ func ReconstructSubscriptionWithParams(params SubscriptionReconstructParams) (*S
 		trafficUsedAdjustment: params.TrafficUsedAdjustment,
 		metadata:              params.Metadata,
 		version:               params.Version,
+		originalVersion:       params.Version,
 		createdAt:             params.CreatedAt,
 		updatedAt:             params.UpdatedAt,
 	}, nil
@@ -391,6 +393,12 @@ func (s *Subscription) Version() int {
 	return s.version
 }
 
+// OriginalVersion returns the version the subscription had when loaded from the
+// database. Used for optimistic locking in the repository Update.
+func (s *Subscription) OriginalVersion() int {
+	return s.originalVersion
+}
+
 // CreatedAt returns when the subscription was created
 func (s *Subscription) CreatedAt() time.Time {
 	return s.createdAt
@@ -534,6 +542,14 @@ func (s *Subscription) Renew(endDate time.Time) error {
 
 	if endDate.Before(s.endDate) {
 		return fmt.Errorf("new end date must be after current end date")
+	}
+
+	// A renewal must actually restore service: the new end date has to be in the
+	// future. Otherwise a subscription that lapsed more than one billing cycle ago
+	// could be "renewed" to a still-past date, staying effectively expired while
+	// the status column reads active.
+	if !endDate.After(biztime.NowUTC()) {
+		return fmt.Errorf("renewed end date must be in the future")
 	}
 
 	s.endDate = endDate
