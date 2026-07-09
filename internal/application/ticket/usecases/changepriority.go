@@ -14,6 +14,7 @@ type ChangePriorityCommand struct {
 	TicketID    uint
 	NewPriority string
 	ChangedBy   uint
+	UserRoles   []string
 }
 
 type ChangePriorityResult struct {
@@ -65,6 +66,12 @@ func (uc *ChangePriorityUseCase) Execute(
 	if err != nil {
 		uc.logger.Errorw("failed to find ticket", "error", err, "ticket_id", cmd.TicketID)
 		return nil, errors.NewNotFoundError("ticket not found")
+	}
+
+	// Only the ticket owner or an admin/support agent may change its priority.
+	if !ticketAggregate.CanBeViewedBy(cmd.ChangedBy, cmd.UserRoles) {
+		uc.logger.Warnw("user cannot modify ticket priority", "ticket_id", cmd.TicketID, "user_id", cmd.ChangedBy)
+		return nil, errors.NewForbiddenError("permission denied: cannot modify ticket priority")
 	}
 
 	if err := ticketAggregate.ChangePriority(priority, cmd.ChangedBy); err != nil {

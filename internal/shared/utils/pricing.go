@@ -89,6 +89,13 @@ func CalculateSavingRate(monthlyPrice, totalPrice uint64, months int) float32 {
 		return 0
 	}
 
+	// If the "discounted" total is actually >= paying monthly, there are no
+	// savings. Guard before subtracting: these are unsigned, so totalPrice >
+	// expectedTotalPrice would wrap around to a huge value and clamp to 100.
+	if totalPrice >= expectedTotalPrice {
+		return 0
+	}
+
 	// Calculate the savings
 	savings := expectedTotalPrice - totalPrice
 

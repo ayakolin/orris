@@ -52,8 +52,10 @@ services:
       MYSQL_DATABASE: ${ORRIS_DATABASE_DATABASE:-orris}
       MYSQL_USER: ${ORRIS_DATABASE_USERNAME:-orris}
       MYSQL_PASSWORD: ${ORRIS_DATABASE_PASSWORD:-password}
+    # Bind to localhost only: the app reaches MySQL over the compose network, so
+    # there is no need to expose the database on the host's public interface.
     ports:
-      - "${ORRIS_DATABASE_PORT:-3306}:3306"
+      - "127.0.0.1:${ORRIS_DATABASE_PORT:-3306}:3306"
     volumes:
       - ./data/mysql:/var/lib/mysql
     healthcheck:
@@ -65,8 +67,11 @@ services:
     image: redis:7-alpine
     container_name: orris_redis
     restart: unless-stopped
+    # Bind to localhost only: Redis has no password by default, so it must not be
+    # reachable from the host's public interface. The app reaches it over the
+    # compose network.
     ports:
-      - "${ORRIS_REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${ORRIS_REDIS_PORT:-6379}:6379"
     volumes:
       - ./data/redis:/data
     healthcheck:

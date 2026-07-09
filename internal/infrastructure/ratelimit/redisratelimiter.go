@@ -50,26 +50,40 @@ func (l *RedisRateLimiter) Allow(key string, config RateLimitConfig) (bool, erro
 	return true, nil
 }
 
+// slidingWindowScript performs the sliding-window check atomically: it trims
+// entries older than the window, counts what remains, and only records the
+// current request if the count is still under the limit. Doing this in a single
+// Lua script prevents the check-then-increment race where two concurrent
+// requests both read the same sub-limit count and are both admitted.
+//
+// KEYS[1] = redis key
+// ARGV[1] = window-start score (unix nanos), ARGV[2] = now (unix nanos)
+// ARGV[3] = limit, ARGV[4] = key TTL in seconds
+// returns 1 when the request is allowed, 0 when it is rejected.
+var slidingWindowScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+local count = redis.call('ZCARD', KEYS[1])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
+if count < tonumber(ARGV[3]) then
+    redis.call('ZADD', KEYS[1], ARGV[2], ARGV[2])
+    return 1
+end
+return 0
+`)
+
 func (l *RedisRateLimiter) checkWindow(key string, window time.Duration, limit int, now time.Time) (bool, error) {
 	redisKey := l.getKey(key, window)
 	windowStart := now.Add(-window).UnixNano()
 	nowNano := now.UnixNano()
+	ttlSeconds := int64((window + time.Minute).Seconds())
 
-	pipe := l.client.Pipeline()
-
-	pipe.ZRemRangeByScore(l.ctx, redisKey, "0", fmt.Sprintf("%d", windowStart))
-	zcard := pipe.ZCard(l.ctx, redisKey)
-	pipe.ZAdd(l.ctx, redisKey, redis.Z{Score: float64(nowNano), Member: nowNano})
-	pipe.Expire(l.ctx, redisKey, window+time.Minute)
-
-	_, err := pipe.Exec(l.ctx)
+	allowed, err := slidingWindowScript.Run(l.ctx, l.client, []string{redisKey},
+		windowStart, nowNano, limit, ttlSeconds).Int64()
 	if err != nil {
-		return false, fmt.Errorf("failed to execute pipeline: %w", err)
+		return false, fmt.Errorf("failed to run rate limit script: %w", err)
 	}
 
-	count := zcard.Val()
-
-	return count < int64(limit), nil
+	return allowed == 1, nil
 }
 
 func (l *RedisRateLimiter) GetRemaining(key string, window time.Duration) (int64, error) {
