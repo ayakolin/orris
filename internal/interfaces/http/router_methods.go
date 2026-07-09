@@ -24,6 +24,7 @@ func isValidBrandingFilename(filename string) bool {
 func (r *Router) SetupRoutes(cfg *config.Config) {
 	r.engine.Use(middleware.Logger(r.logger))
 	r.engine.Use(middleware.Recovery(r.logger))
+	r.engine.Use(middleware.BodyLimit(middleware.DefaultMaxRequestBodyBytes))
 	r.engine.Use(middleware.CORS(cfg.Server.AllowedOrigins))
 	r.engine.Use(middleware.SecurityHeaders())
 	r.engine.Use(middleware.CSRF())

@@ -159,7 +159,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	result, err := h.loginUseCase.Execute(c.Request.Context(), cmd)
 	if err != nil {
 		h.logger.Errorw("login failed", "error", err, "email", req.Email)
-		utils.ErrorResponse(c, http.StatusUnauthorized, err.Error())
+		utils.ErrorResponseWithError(c, err)
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	if err := h.verifyEmailUseCase.Execute(c.Request.Context(), cmd); err != nil {
 		h.logger.Errorw("email verification failed", "error", err)
-		utils.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		utils.ErrorResponseWithError(c, err)
 		return
 	}
 
@@ -217,7 +217,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 	if err := h.requestResetUseCase.Execute(c.Request.Context(), cmd); err != nil {
 		h.logger.Errorw("password reset request failed", "error", err)
-		utils.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		utils.ErrorResponseWithError(c, err)
 		return
 	}
 
@@ -238,7 +238,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 	if err := h.resetPasswordUseCase.Execute(c.Request.Context(), cmd); err != nil {
 		h.logger.Errorw("password reset failed", "error", err)
-		utils.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		utils.ErrorResponseWithError(c, err)
 		return
 	}
 
@@ -359,7 +359,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	result, err := h.refreshTokenUseCase.Execute(c.Request.Context(), cmd)
 	if err != nil {
 		h.logger.Errorw("token refresh failed", "error", err)
-		utils.ErrorResponse(c, http.StatusUnauthorized, err.Error())
+		utils.ErrorResponseWithError(c, err)
 		return
 	}
 
