@@ -400,6 +400,24 @@ func (m *MockForwardRuleRepository) UpdateTraffic(ctx context.Context, id uint, 
 	return nil
 }
 
+// ResetTraffic resets a rule's traffic counters to zero.
+func (m *MockForwardRuleRepository) ResetTraffic(ctx context.Context, id uint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.trafficError != nil {
+		return m.trafficError
+	}
+
+	rule, exists := m.rules[id]
+	if !exists {
+		return nil // Rule not found, no-op
+	}
+
+	rule.ResetTraffic()
+	return nil
+}
+
 // ListByExitAgentID returns all entrance rules for a specific exit agent.
 func (m *MockForwardRuleRepository) ListByExitAgentID(ctx context.Context, exitAgentID uint) ([]*forward.ForwardRule, error) {
 	m.mu.RLock()

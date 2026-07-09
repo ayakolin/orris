@@ -127,8 +127,25 @@ func (n *SyncNotifier) GetAgentVersion(agentID uint) uint64 {
 
 // UpdateAgentVersion updates the version for a specific agent.
 // This is typically called when receiving config acknowledgment from an agent.
+// UpdateAgentVersion records an agent-acknowledged version. It only ever
+// advances the stored value: acks may arrive out of order (or interleave with
+// the send path, which allocates strictly increasing versions under
+// WithAgentLock), and a late/lower ack must never regress the recorded version.
 func (n *SyncNotifier) UpdateAgentVersion(agentID uint, version uint64) {
-	n.agentVersions.Store(agentID, version)
+	for {
+		existing, loaded := n.agentVersions.LoadOrStore(agentID, version)
+		if !loaded {
+			return // no prior value; stored version as the initial entry
+		}
+		current, ok := existing.(uint64)
+		if !ok || version <= current {
+			return // stale/equal ack (or unexpected type): keep the newer value
+		}
+		if n.agentVersions.CompareAndSwap(agentID, current, version) {
+			return
+		}
+		// A concurrent writer changed the value; re-read and retry.
+	}
 }
 
 // IsAgentOnline checks if an agent is currently connected to the hub.

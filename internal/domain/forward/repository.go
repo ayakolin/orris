@@ -139,6 +139,10 @@ type RuleWriter interface {
 	// UpdateTraffic updates the traffic counters for a rule.
 	UpdateTraffic(ctx context.Context, id uint, upload, download int64) error
 
+	// ResetTraffic resets a rule's traffic counters to zero. Traffic columns are
+	// intentionally not writable via Update to avoid clobbering concurrent flushes.
+	ResetTraffic(ctx context.Context, id uint) error
+
 	// UpdateSortOrders batch updates sort_order for multiple rules.
 	UpdateSortOrders(ctx context.Context, ruleOrders map[uint]int) error
 }

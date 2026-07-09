@@ -47,9 +47,10 @@ func (uc *ResetForwardRuleTrafficUseCase) Execute(ctx context.Context, cmd Reset
 		return errors.NewNotFoundError("forward rule", cmd.ShortID)
 	}
 
-	rule.ResetTraffic()
-
-	if err := uc.repo.Update(ctx, rule); err != nil {
+	// Reset via the dedicated ResetTraffic path. The general Update deliberately
+	// does not write traffic columns (to avoid clobbering concurrent traffic
+	// flushes), so it cannot be used to zero the counters.
+	if err := uc.repo.ResetTraffic(ctx, rule.ID()); err != nil {
 		uc.logger.Errorw("failed to reset forward rule traffic", "short_id", cmd.ShortID, "error", err)
 		return fmt.Errorf("failed to reset forward rule traffic: %w", err)
 	}

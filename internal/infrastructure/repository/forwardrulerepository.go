@@ -229,8 +229,10 @@ func (r *ForwardRuleRepositoryImpl) Update(ctx context.Context, rule *forward.Fo
 			"protocol":           model.Protocol,
 			"status":             model.Status,
 			"remark":             model.Remark,
-			"upload_bytes":       model.UploadBytes,
-			"download_bytes":     model.DownloadBytes,
+			// NOTE: upload_bytes/download_bytes are deliberately NOT updated here.
+			// Traffic counters are mutated only via UpdateTraffic (atomic increments
+			// from the periodic traffic-flush). Writing them from a possibly-stale
+			// in-memory snapshot would clobber concurrently-flushed billed traffic.
 			"rule_type":          model.RuleType,
 			"exit_agent_id":      model.ExitAgentID,
 			"exit_agents":        model.ExitAgents,

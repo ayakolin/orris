@@ -228,7 +228,7 @@ func (h *NodeHubHandler) NodeAgentWS(c *gin.Context) {
 	goroutine.SafeGo(h.logger, "node-agent-write-pump", func() {
 		h.writePump(nodeID, conn, nodeConn.Send)
 	})
-	h.readPump(nodeID, conn)
+	h.readPump(nodeID, conn, nodeConn)
 }
 
 // checkAndNotifyIPChange checks if the node's public IP has changed,
@@ -328,9 +328,11 @@ func (h *NodeHubHandler) syncSubscriptionsOnConnect(nodeID uint) {
 }
 
 // readPump reads messages from node agent WebSocket.
-func (h *NodeHubHandler) readPump(nodeID uint, conn *websocket.Conn) {
+func (h *NodeHubHandler) readPump(nodeID uint, conn *websocket.Conn, nodeConn *services.NodeHubConn) {
 	defer func() {
-		h.hub.UnregisterNodeAgent(nodeID)
+		// Pass the specific connection so a slow teardown of this (possibly
+		// superseded) connection cannot evict a newer one after a reconnect.
+		h.hub.UnregisterNodeAgent(nodeID, nodeConn)
 		conn.Close()
 	}()
 

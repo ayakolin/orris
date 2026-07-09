@@ -368,24 +368,39 @@ func (h *AgentHub) RegisterAgent(agentID uint, conn *websocket.Conn, observedAdd
 	return agentConn
 }
 
-// UnregisterAgent removes an agent connection.
-func (h *AgentHub) UnregisterAgent(agentID uint) {
+// UnregisterAgent removes an agent connection, but only when the currently
+// registered connection is the one supplied. During a reconnect, a new
+// connection may replace the old one in the registry before the old
+// connection's read loop tears down; without this identity check the old
+// loop's cleanup would evict the live new connection, flapping the agent
+// offline. Passing conn == nil forces removal of whatever is registered.
+func (h *AgentHub) UnregisterAgent(agentID uint, conn *AgentHubConn) {
 	h.agentsMu.Lock()
 	defer h.agentsMu.Unlock()
 
-	if conn, ok := h.agents[agentID]; ok {
-		conn.Close() // Use Close() to safely close the channel
-		delete(h.agents, agentID)
-
-		h.logger.Infow("forward agent disconnected",
+	current, ok := h.agents[agentID]
+	if !ok {
+		return
+	}
+	if conn != nil && current != conn {
+		// A newer connection already replaced this one; leave it in place.
+		h.logger.Debugw("skipping unregister for superseded forward agent connection",
 			"agent_id", agentID,
 		)
+		return
+	}
 
-		if h.onAgentOffline != nil {
-			goroutine.SafeGo(h.logger, "agenthub-on-agent-offline", func() {
-				h.onAgentOffline(agentID)
-			})
-		}
+	current.Close() // Use Close() to safely close the channel
+	delete(h.agents, agentID)
+
+	h.logger.Infow("forward agent disconnected",
+		"agent_id", agentID,
+	)
+
+	if h.onAgentOffline != nil {
+		goroutine.SafeGo(h.logger, "agenthub-on-agent-offline", func() {
+			h.onAgentOffline(agentID)
+		})
 	}
 }
 
@@ -556,24 +571,36 @@ func (h *AgentHub) RegisterNodeAgent(nodeID uint, conn *websocket.Conn) *NodeHub
 	return nodeConn
 }
 
-// UnregisterNodeAgent removes a node agent connection.
-func (h *AgentHub) UnregisterNodeAgent(nodeID uint) {
+// UnregisterNodeAgent removes a node agent connection, but only when the
+// currently registered connection is the one supplied (see UnregisterAgent for
+// the reconnect race this prevents). Passing conn == nil forces removal of
+// whatever is registered.
+func (h *AgentHub) UnregisterNodeAgent(nodeID uint, conn *NodeHubConn) {
 	h.nodesMu.Lock()
 	defer h.nodesMu.Unlock()
 
-	if conn, ok := h.nodes[nodeID]; ok {
-		conn.Close()
-		delete(h.nodes, nodeID)
-
-		h.logger.Infow("node agent disconnected",
+	current, ok := h.nodes[nodeID]
+	if !ok {
+		return
+	}
+	if conn != nil && current != conn {
+		h.logger.Debugw("skipping unregister for superseded node agent connection",
 			"node_id", nodeID,
 		)
+		return
+	}
 
-		if h.onNodeOffline != nil {
-			goroutine.SafeGo(h.logger, "agenthub-on-node-offline", func() {
-				h.onNodeOffline(nodeID)
-			})
-		}
+	current.Close()
+	delete(h.nodes, nodeID)
+
+	h.logger.Infow("node agent disconnected",
+		"node_id", nodeID,
+	)
+
+	if h.onNodeOffline != nil {
+		goroutine.SafeGo(h.logger, "agenthub-on-node-offline", func() {
+			h.onNodeOffline(nodeID)
+		})
 	}
 }
 

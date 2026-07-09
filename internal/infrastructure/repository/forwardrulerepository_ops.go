@@ -9,6 +9,7 @@ import (
 
 	"github.com/orris-inc/orris/internal/domain/forward"
 	"github.com/orris-inc/orris/internal/infrastructure/persistence/models"
+	"github.com/orris-inc/orris/internal/shared/biztime"
 	"github.com/orris-inc/orris/internal/shared/db"
 	"github.com/orris-inc/orris/internal/shared/errors"
 )
@@ -131,6 +132,31 @@ func (r *ForwardRuleRepositoryImpl) UpdateTraffic(ctx context.Context, id uint, 
 	if result.Error != nil {
 		r.logger.Errorw("failed to update forward rule traffic", "id", id, "error", result.Error)
 		return fmt.Errorf("failed to update traffic: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return errors.NewNotFoundError("forward rule", fmt.Sprintf("%d", id))
+	}
+
+	return nil
+}
+
+// ResetTraffic resets a rule's traffic counters to zero. This is the only write
+// path for the traffic columns besides UpdateTraffic; the general Update never
+// touches them so it cannot clobber a concurrent traffic flush.
+func (r *ForwardRuleRepositoryImpl) ResetTraffic(ctx context.Context, id uint) error {
+	tx := db.GetTxFromContext(ctx, r.db)
+	result := tx.Model(&models.ForwardRuleModel{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"upload_bytes":   0,
+			"download_bytes": 0,
+			"updated_at":     biztime.NowUTC(),
+		})
+
+	if result.Error != nil {
+		r.logger.Errorw("failed to reset forward rule traffic", "id", id, "error", result.Error)
+		return fmt.Errorf("failed to reset traffic: %w", result.Error)
 	}
 
 	if result.RowsAffected == 0 {

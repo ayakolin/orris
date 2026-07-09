@@ -94,13 +94,15 @@ func (h *Handler) ForwardAgentWS(c *gin.Context) {
 	goroutine.SafeGo(h.logger, "forward-agent-write-pump", func() {
 		h.writePump(agentID, conn, agentConn.Send)
 	})
-	h.readPump(agentID, conn)
+	h.readPump(agentID, conn, agentConn)
 }
 
 // readPump reads messages from agent WebSocket.
-func (h *Handler) readPump(agentID uint, conn *websocket.Conn) {
+func (h *Handler) readPump(agentID uint, conn *websocket.Conn, agentConn *services.AgentHubConn) {
 	defer func() {
-		h.hub.UnregisterAgent(agentID)
+		// Pass the specific connection so a slow teardown of this (possibly
+		// superseded) connection cannot evict a newer one after a reconnect.
+		h.hub.UnregisterAgent(agentID, agentConn)
 		conn.Close()
 	}()
 
