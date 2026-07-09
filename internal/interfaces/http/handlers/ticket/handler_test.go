@@ -57,11 +57,13 @@ func (m *mockAddCommentUC) Execute(_ context.Context, _ usecases.AddCommentComma
 }
 
 type mockGetTicketUC struct {
-	result *ticketdto.TicketDTO
-	err    error
+	result        *ticketdto.TicketDTO
+	err           error
+	capturedQuery usecases.GetTicketQuery
 }
 
-func (m *mockGetTicketUC) Execute(_ context.Context, _ usecases.GetTicketQuery) (*ticketdto.TicketDTO, error) {
+func (m *mockGetTicketUC) Execute(_ context.Context, q usecases.GetTicketQuery) (*ticketdto.TicketDTO, error) {
+	m.capturedQuery = q
 	return m.result, m.err
 }
 
@@ -259,6 +261,24 @@ func TestTicketHandler_GetTicket_Success(t *testing.T) {
 	err := testutil.ParseResponse(w, &resp)
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
+}
+
+// GetTicket must forward the caller's role so admin/agent visibility and
+// internal-comment inclusion work in the use case.
+func TestTicketHandler_GetTicket_ForwardsUserRole(t *testing.T) {
+	mockUC := &mockGetTicketUC{
+		result: &ticketdto.TicketDTO{ID: 1, Tags: []string{}, Comments: []ticketdto.CommentDTO{}},
+	}
+	handler := newTestTicketHandler(testDeps{getTicketUC: mockUC})
+
+	c, _ := testutil.NewTestContext(http.MethodGet, "/tickets/1", nil)
+	testutil.SetAuthContext(c, 1)
+	c.Set(constants.ContextKeyUserRole, "admin")
+	testutil.SetURLParam(c, "id", "1")
+
+	handler.GetTicket(c)
+
+	assert.Equal(t, []string{"admin"}, mockUC.capturedQuery.UserRoles)
 }
 
 func TestTicketHandler_GetTicket_InvalidID(t *testing.T) {

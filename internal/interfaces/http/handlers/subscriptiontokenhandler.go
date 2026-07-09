@@ -44,7 +44,8 @@ type GenerateTokenRequest struct {
 }
 
 func (h *SubscriptionTokenHandler) GenerateToken(c *gin.Context) {
-	subscriptionID, err := parseSubscriptionID(c)
+	// Ownership already verified by middleware; use the scoped subscription ID from context.
+	subscriptionID, err := utils.GetSubscriptionIDFromContext(c)
 	if err != nil {
 		utils.ErrorResponseWithError(c, err)
 		return
@@ -83,7 +84,8 @@ func (h *SubscriptionTokenHandler) GenerateToken(c *gin.Context) {
 }
 
 func (h *SubscriptionTokenHandler) ListTokens(c *gin.Context) {
-	subscriptionID, err := parseSubscriptionID(c)
+	// Ownership already verified by middleware; use the scoped subscription ID from context.
+	subscriptionID, err := utils.GetSubscriptionIDFromContext(c)
 	if err != nil {
 		utils.ErrorResponseWithError(c, err)
 		return
@@ -113,6 +115,12 @@ func (h *SubscriptionTokenHandler) ListTokens(c *gin.Context) {
 }
 
 func (h *SubscriptionTokenHandler) RevokeToken(c *gin.Context) {
+	subscriptionID, err := utils.GetSubscriptionIDFromContext(c)
+	if err != nil {
+		utils.ErrorResponseWithError(c, err)
+		return
+	}
+
 	tokenID, err := parseTokenID(c)
 	if err != nil {
 		utils.ErrorResponseWithError(c, err)
@@ -120,7 +128,8 @@ func (h *SubscriptionTokenHandler) RevokeToken(c *gin.Context) {
 	}
 
 	cmd := usecases.RevokeSubscriptionTokenCommand{
-		TokenID: tokenID,
+		SubscriptionID: subscriptionID,
+		TokenID:        tokenID,
 	}
 
 	if err := h.revokeTokenUC.Execute(c.Request.Context(), cmd); err != nil {
@@ -132,6 +141,12 @@ func (h *SubscriptionTokenHandler) RevokeToken(c *gin.Context) {
 }
 
 func (h *SubscriptionTokenHandler) RefreshToken(c *gin.Context) {
+	subscriptionID, err := utils.GetSubscriptionIDFromContext(c)
+	if err != nil {
+		utils.ErrorResponseWithError(c, err)
+		return
+	}
+
 	tokenID, err := parseTokenID(c)
 	if err != nil {
 		utils.ErrorResponseWithError(c, err)
@@ -139,7 +154,8 @@ func (h *SubscriptionTokenHandler) RefreshToken(c *gin.Context) {
 	}
 
 	cmd := usecases.RefreshSubscriptionTokenCommand{
-		OldTokenID: tokenID,
+		SubscriptionID: subscriptionID,
+		OldTokenID:     tokenID,
 	}
 
 	result, err := h.refreshTokenUC.Execute(c.Request.Context(), cmd)
@@ -149,24 +165,6 @@ func (h *SubscriptionTokenHandler) RefreshToken(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, http.StatusOK, "Subscription token refreshed successfully", result)
-}
-
-func parseSubscriptionID(c *gin.Context) (uint, error) {
-	idStr := c.Param("id")
-	if idStr == "" {
-		return 0, errors.NewValidationError("Subscription ID is required")
-	}
-
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		return 0, errors.NewValidationError("Invalid subscription ID format")
-	}
-
-	if id == 0 {
-		return 0, errors.NewValidationError("Subscription ID cannot be zero")
-	}
-
-	return uint(id), nil
 }
 
 func parseTokenID(c *gin.Context) (uint, error) {

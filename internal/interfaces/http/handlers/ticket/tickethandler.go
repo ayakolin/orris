@@ -91,9 +91,12 @@ func (h *TicketHandler) GetTicket(c *gin.Context) {
 		utils.ErrorResponseWithError(c, err)
 		return
 	}
+	// Roles drive admin/agent visibility and inclusion of internal comments.
+	userRole := c.GetString(constants.ContextKeyUserRole)
 	cmd := usecases.GetTicketQuery{
-		TicketID: ticketID,
-		UserID:   userID,
+		TicketID:  ticketID,
+		UserID:    userID,
+		UserRoles: []string{userRole},
 	}
 
 	result, err := h.getTicketUC.Execute(c.Request.Context(), cmd)
@@ -118,7 +121,11 @@ func (h *TicketHandler) ListTickets(c *gin.Context) {
 		utils.ErrorResponseWithError(c, err)
 		return
 	}
+	// Roles let admins/support agents see the full queue rather than only their
+	// own tickets.
+	userRole := c.GetString(constants.ContextKeyUserRole)
 	cmd := req.ToQuery(userID)
+	cmd.UserRoles = []string{userRole}
 
 	result, err := h.listTicketsUC.Execute(c.Request.Context(), cmd)
 	if err != nil {

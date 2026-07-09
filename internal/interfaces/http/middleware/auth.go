@@ -18,14 +18,16 @@ import (
 type AuthMiddleware struct {
 	jwtService   *auth.JWTService
 	userRepo     user.Repository
+	sessionRepo  user.SessionRepository
 	cookieConfig config.CookieConfig
 	logger       logger.Interface
 }
 
-func NewAuthMiddleware(jwtService *auth.JWTService, userRepo user.Repository, cookieConfig config.CookieConfig, logger logger.Interface) *AuthMiddleware {
+func NewAuthMiddleware(jwtService *auth.JWTService, userRepo user.Repository, sessionRepo user.SessionRepository, cookieConfig config.CookieConfig, logger logger.Interface) *AuthMiddleware {
 	return &AuthMiddleware{
 		jwtService:   jwtService,
 		userRepo:     userRepo,
+		sessionRepo:  sessionRepo,
 		cookieConfig: cookieConfig,
 		logger:       logger,
 	}
@@ -78,6 +80,16 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			return
 		}
 
+		// Re-check account status on every request so suspension/ban/deletion
+		// takes effect immediately, even for an already-issued access token.
+		if !foundUser.CanPerformActions() {
+			m.logger.Warnw("rejecting request from user that cannot perform actions",
+				"user_uuid", claims.UserUUID, "status", foundUser.Status())
+			utils.ErrorResponse(c, http.StatusForbidden, "account is not active")
+			c.Abort()
+			return
+		}
+
 		c.Set("user_id", foundUser.ID())
 		c.Set("user_uuid", claims.UserUUID)
 		c.Set("session_id", claims.SessionID)
@@ -98,6 +110,18 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 // freshRole is the user's current role from the database, ensuring the refreshed
 // token reflects any role changes (e.g. demotion from admin).
 func (m *AuthMiddleware) refreshAccessToken(c *gin.Context, claims *auth.Claims, freshRole authorization.UserRole) {
+	// Do not silently renew a session that has been revoked (logout / logout-all /
+	// password change) or has expired. Without this, auto-refresh would keep an
+	// access token alive indefinitely and defeat session revocation.
+	if claims.SessionID != "" {
+		session, err := m.sessionRepo.GetByID(claims.SessionID)
+		if err != nil || session == nil || session.IsExpired() {
+			m.logger.Debugw("skipping auto-refresh: session revoked or expired",
+				"user_uuid", claims.UserUUID, "session_id", claims.SessionID)
+			return
+		}
+	}
+
 	newToken, err := m.jwtService.RefreshAccessToken(claims, freshRole)
 	if err != nil {
 		m.logger.Warnw("failed to auto-refresh access token", "error", err, "user_uuid", claims.UserUUID)
@@ -140,7 +164,7 @@ func (m *AuthMiddleware) OptionalAuth() gin.HandlerFunc {
 		if err == nil && claims.TokenType == auth.TokenTypeAccess {
 			// Look up user by SID to get internal ID
 			foundUser, lookupErr := m.userRepo.GetBySID(c.Request.Context(), claims.UserUUID)
-			if lookupErr == nil && foundUser != nil {
+			if lookupErr == nil && foundUser != nil && foundUser.CanPerformActions() {
 				c.Set("user_id", foundUser.ID())
 				c.Set("user_uuid", claims.UserUUID)
 				c.Set("session_id", claims.SessionID)

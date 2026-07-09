@@ -38,6 +38,7 @@ type OnlineSubscriptionInfo struct {
 type ReportOnlineSubscriptionsUseCase struct {
 	subscriptionTracker    OnlineSubscriptionTracker
 	subscriptionIDResolver SubscriptionIDResolver
+	authorizer             NodeSubscriptionAuthorizer
 	logger                 logger.Interface
 }
 
@@ -45,11 +46,13 @@ type ReportOnlineSubscriptionsUseCase struct {
 func NewReportOnlineSubscriptionsUseCase(
 	subscriptionTracker OnlineSubscriptionTracker,
 	subscriptionIDResolver SubscriptionIDResolver,
+	authorizer NodeSubscriptionAuthorizer,
 	logger logger.Interface,
 ) *ReportOnlineSubscriptionsUseCase {
 	return &ReportOnlineSubscriptionsUseCase{
 		subscriptionTracker:    subscriptionTracker,
 		subscriptionIDResolver: subscriptionIDResolver,
+		authorizer:             authorizer,
 		logger:                 logger,
 	}
 }
@@ -126,9 +129,29 @@ func (uc *ReportOnlineSubscriptionsUseCase) Execute(ctx context.Context, cmd Rep
 		return nil, fmt.Errorf("failed to lookup subscription IDs: %w", err)
 	}
 
-	// Build online subscription info with internal IDs (one entry per IP)
+	// Authorization: a node may only report online activity for subscriptions
+	// authorized to use it. Fail closed so a node can't inflate arbitrary
+	// subscriptions' device counts.
+	authorizedIDs, err := authorizedSubscriptionIDs(ctx, uc.authorizer, cmd.NodeID)
+	if err != nil {
+		uc.logger.Errorw("failed to resolve authorized subscriptions for node",
+			"error", err,
+			"node_id", cmd.NodeID,
+		)
+		return nil, fmt.Errorf("failed to authorize online subscriptions: %w", err)
+	}
+
+	// Build online subscription info with internal IDs (one entry per IP),
+	// dropping any subscription not authorized for this node.
 	subscriptions := make([]OnlineSubscriptionInfo, 0, len(sidToID))
 	for sid, internalID := range sidToID {
+		if _, ok := authorizedIDs[internalID]; !ok {
+			uc.logger.Warnw("dropping online report for subscription not authorized on node",
+				"node_id", cmd.NodeID,
+				"subscription_sid", sid,
+			)
+			continue
+		}
 		for _, ip := range ipMap[sid] {
 			subscriptions = append(subscriptions, OnlineSubscriptionInfo{
 				SubscriptionID: internalID,

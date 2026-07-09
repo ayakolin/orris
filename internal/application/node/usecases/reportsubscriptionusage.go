@@ -45,6 +45,7 @@ type SubscriptionIDResolver interface {
 type ReportSubscriptionUsageUseCase struct {
 	usageRecorder      SubscriptionUsageRecorder
 	subscriptionLookup SubscriptionIDResolver
+	authorizer         NodeSubscriptionAuthorizer
 	logger             logger.Interface
 }
 
@@ -52,11 +53,13 @@ type ReportSubscriptionUsageUseCase struct {
 func NewReportSubscriptionUsageUseCase(
 	usageRecorder SubscriptionUsageRecorder,
 	subscriptionLookup SubscriptionIDResolver,
+	authorizer NodeSubscriptionAuthorizer,
 	logger logger.Interface,
 ) *ReportSubscriptionUsageUseCase {
 	return &ReportSubscriptionUsageUseCase{
 		usageRecorder:      usageRecorder,
 		subscriptionLookup: subscriptionLookup,
+		authorizer:         authorizer,
 		logger:             logger,
 	}
 }
@@ -116,9 +119,29 @@ func (uc *ReportSubscriptionUsageUseCase) Execute(ctx context.Context, cmd Repor
 		return nil, fmt.Errorf("failed to lookup subscription IDs: %w", err)
 	}
 
-	// Build usage items with internal IDs
+	// Authorization: a node may only report usage for subscriptions authorized to
+	// use it (resource-group membership). Without this, a node operator could forge
+	// usage for any subscription SID and exhaust another user's quota. Fail closed.
+	authorizedIDs, err := authorizedSubscriptionIDs(ctx, uc.authorizer, cmd.NodeID)
+	if err != nil {
+		uc.logger.Errorw("failed to resolve authorized subscriptions for node",
+			"error", err,
+			"node_id", cmd.NodeID,
+		)
+		return nil, fmt.Errorf("failed to authorize subscription usage: %w", err)
+	}
+
+	// Build usage items with internal IDs, dropping any subscription not authorized
+	// for this node.
 	validItems := make([]SubscriptionUsageItem, 0, len(sidToID))
 	for sid, internalID := range sidToID {
+		if _, ok := authorizedIDs[internalID]; !ok {
+			uc.logger.Warnw("dropping usage report for subscription not authorized on node",
+				"node_id", cmd.NodeID,
+				"subscription_sid", sid,
+			)
+			continue
+		}
 		usage := usageMap[sid]
 		validItems = append(validItems, SubscriptionUsageItem{
 			SubscriptionID: internalID,

@@ -6,11 +6,15 @@ import (
 	"time"
 
 	"github.com/orris-inc/orris/internal/domain/subscription"
+	"github.com/orris-inc/orris/internal/shared/errors"
 	"github.com/orris-inc/orris/internal/shared/logger"
 )
 
 type RefreshSubscriptionTokenCommand struct {
-	OldTokenID uint
+	// SubscriptionID scopes the operation to a subscription the caller owns.
+	// The token is only acted upon when it belongs to this subscription.
+	SubscriptionID uint
+	OldTokenID     uint
 }
 
 type RefreshSubscriptionTokenResult struct {
@@ -45,6 +49,17 @@ func (uc *RefreshSubscriptionTokenUseCase) Execute(ctx context.Context, cmd Refr
 	if err != nil {
 		uc.logger.Errorw("failed to get old token", "error", err, "token_id", cmd.OldTokenID)
 		return nil, fmt.Errorf("failed to get token: %w", err)
+	}
+
+	// Authorization: the token must belong to the caller's subscription.
+	// Respond as "not found" rather than "forbidden" so token IDs owned by
+	// other subscriptions cannot be enumerated.
+	if oldToken == nil || oldToken.SubscriptionID() != cmd.SubscriptionID {
+		uc.logger.Warnw("token not found for subscription",
+			"token_id", cmd.OldTokenID,
+			"subscription_id", cmd.SubscriptionID,
+		)
+		return nil, errors.NewNotFoundError("subscription token")
 	}
 
 	if !oldToken.IsValid() {

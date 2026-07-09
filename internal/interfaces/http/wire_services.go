@@ -101,7 +101,7 @@ func (c *Container) initInfrastructure() {
 	c.agentTokenSvc = auth.NewAgentTokenService(cfg.Forward.TokenSigningSecret)
 
 	// Initialize early middlewares
-	c.authMiddleware = middleware.NewAuthMiddleware(c.jwtSvc, c.repos.userRepo, cfg.Auth.Cookie, log)
+	c.authMiddleware = middleware.NewAuthMiddleware(c.jwtSvc, c.repos.userRepo, c.repos.sessionRepo, cfg.Auth.Cookie, log)
 	c.rateLimiter = middleware.NewRateLimiter(c.redis, 100, 1*time.Minute)
 
 	// Initialize hourly traffic cache for Redis-based hourly data queries and daily aggregation
@@ -729,9 +729,9 @@ func (c *Container) initForward() {
 	c.systemStatusUpdater = adapters.NewNodeSystemStatusUpdaterAdapter(c.redis, log)
 	onlineSubscriptionTracker := c.onlineSubscriptionTracker
 	c.subscriptionIDResolver = adapters.NewSubscriptionIDResolverAdapter(repos.subscriptionRepo, log)
-	ucs.reportSubscriptionUsageUC = nodeUsecases.NewReportSubscriptionUsageUseCase(subscriptionUsageRecorder, c.subscriptionIDResolver, log)
+	ucs.reportSubscriptionUsageUC = nodeUsecases.NewReportSubscriptionUsageUseCase(subscriptionUsageRecorder, c.subscriptionIDResolver, repos.subscriptionRepo, log)
 	ucs.reportNodeStatusUC = nodeUsecases.NewReportNodeStatusUseCase(c.systemStatusUpdater, repos.nodeRepoImpl, repos.nodeRepoImpl, log)
-	ucs.reportOnlineSubscriptionsUC = nodeUsecases.NewReportOnlineSubscriptionsUseCase(onlineSubscriptionTracker, c.subscriptionIDResolver, log)
+	ucs.reportOnlineSubscriptionsUC = nodeUsecases.NewReportOnlineSubscriptionsUseCase(onlineSubscriptionTracker, c.subscriptionIDResolver, repos.subscriptionRepo, log)
 
 	// Initialize RESTful Agent Handler
 	hdlrs.agentHandler = nodeHandlers.NewAgentHandler(
