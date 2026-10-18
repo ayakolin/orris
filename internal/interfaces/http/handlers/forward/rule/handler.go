@@ -8,18 +8,19 @@ import (
 
 // Handler handles HTTP requests for forward rules.
 type Handler struct {
-	createRuleUC   createRuleUseCase
-	getRuleUC      getRuleUseCase
-	updateRuleUC   updateRuleUseCase
-	deleteRuleUC   deleteRuleUseCase
-	listRulesUC    listRulesUseCase
-	enableRuleUC   enableRuleUseCase
-	disableRuleUC  disableRuleUseCase
-	resetTrafficUC resetTrafficUseCase
-	reorderRulesUC reorderRulesUseCase
-	batchRuleUC    batchRuleUseCase
-	probeService   probeService
-	logger         logger.Interface
+	createRuleUC    createRuleUseCase
+	getRuleUC       getRuleUseCase
+	updateRuleUC    updateRuleUseCase
+	deleteRuleUC    deleteRuleUseCase
+	listRulesUC     listRulesUseCase
+	enableRuleUC    enableRuleUseCase
+	disableRuleUC   disableRuleUseCase
+	resetTrafficUC  resetTrafficUseCase
+	reorderRulesUC  reorderRulesUseCase
+	batchRuleUC     batchRuleUseCase
+	retargetRulesUC retargetRulesUseCase
+	probeService    probeService
+	logger          logger.Interface
 }
 
 // NewHandler creates a new Handler.
@@ -34,22 +35,24 @@ func NewHandler(
 	resetTrafficUC resetTrafficUseCase,
 	reorderRulesUC reorderRulesUseCase,
 	batchRuleUC batchRuleUseCase,
+	retargetRulesUC retargetRulesUseCase,
 	probeService probeService,
 	log logger.Interface,
 ) *Handler {
 	return &Handler{
-		createRuleUC:   createRuleUC,
-		getRuleUC:      getRuleUC,
-		updateRuleUC:   updateRuleUC,
-		deleteRuleUC:   deleteRuleUC,
-		listRulesUC:    listRulesUC,
-		enableRuleUC:   enableRuleUC,
-		disableRuleUC:  disableRuleUC,
-		resetTrafficUC: resetTrafficUC,
-		reorderRulesUC: reorderRulesUC,
-		batchRuleUC:    batchRuleUC,
-		probeService:   probeService,
-		logger:         log,
+		createRuleUC:    createRuleUC,
+		getRuleUC:       getRuleUC,
+		updateRuleUC:    updateRuleUC,
+		deleteRuleUC:    deleteRuleUC,
+		listRulesUC:     listRulesUC,
+		enableRuleUC:    enableRuleUC,
+		disableRuleUC:   disableRuleUC,
+		resetTrafficUC:  resetTrafficUC,
+		reorderRulesUC:  reorderRulesUC,
+		batchRuleUC:     batchRuleUC,
+		retargetRulesUC: retargetRulesUC,
+		probeService:    probeService,
+		logger:          log,
 	}
 }
 

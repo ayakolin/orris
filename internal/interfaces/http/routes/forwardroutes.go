@@ -40,6 +40,9 @@ func SetupForwardRoutes(engine *gin.Engine, cfg *ForwardRouteConfig) {
 		forwardRules.GET("", cfg.ForwardRuleHandler.ListRules)
 		forwardRules.PATCH("/reorder", cfg.ForwardRuleHandler.ReorderRules)
 
+		// Retarget operations (must be registered before /:id routes)
+		forwardRules.POST("/retarget", cfg.ForwardRuleHandler.RetargetRules)
+
 		// Batch operations
 		forwardRules.POST("/batch", cfg.ForwardRuleHandler.BatchCreateRules)
 		forwardRules.DELETE("/batch", cfg.ForwardRuleHandler.BatchDeleteRules)

@@ -35,8 +35,14 @@ func SetupAuthRoutes(engine *gin.Engine, cfg *AuthRouteConfig) {
 
 		// Passkey (WebAuthn) authentication routes
 		if cfg.PasskeyHandler != nil {
-			auth.POST("/passkey/register/start", cfg.AuthMiddleware.RequireAuth(), cfg.PasskeyHandler.StartRegistration)
-			auth.POST("/passkey/register/finish", cfg.AuthMiddleware.RequireAuth(), cfg.PasskeyHandler.FinishRegistration)
+			// Registering a passkey mints a durable credential, so it is limited to
+			// interactive sessions; an admin API token is rejected.
+			auth.POST("/passkey/register/start",
+				cfg.AuthMiddleware.RequireAuth(), middleware.RequireSessionAuth(),
+				cfg.PasskeyHandler.StartRegistration)
+			auth.POST("/passkey/register/finish",
+				cfg.AuthMiddleware.RequireAuth(), middleware.RequireSessionAuth(),
+				cfg.PasskeyHandler.FinishRegistration)
 			auth.POST("/passkey/login/start", cfg.RateLimiter.Limit(), cfg.PasskeyHandler.StartAuthentication)
 			auth.POST("/passkey/login/finish", cfg.RateLimiter.Limit(), cfg.PasskeyHandler.FinishAuthentication)
 			// Passkey signup (new user registration without password)

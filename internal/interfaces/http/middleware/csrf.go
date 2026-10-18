@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/orris-inc/orris/internal/infrastructure/token"
 	"github.com/orris-inc/orris/internal/shared/utils"
 )
 
@@ -21,8 +22,8 @@ var csrfExactPaths = map[string]struct{}{
 	"/auth/refresh":         {},
 	// Logout is exempt because the CSRF cookie may have expired alongside the access token.
 	// It is already protected by RequireAuth middleware.
-	"/auth/logout":          {},
-	"/payments/callback":    {},
+	"/auth/logout":       {},
+	"/payments/callback": {},
 }
 
 // csrfPrefixPaths lists path prefixes exempt from CSRF validation.
@@ -62,6 +63,24 @@ func CSRF() gin.HandlerFunc {
 			}
 		}
 
+		// Skip the CSRF check for requests that are authenticated solely by an admin
+		// API token (Authorization: Bearer orr_...) and carry no auth cookies.
+		//
+		// Why this is safe:
+		//   - A browser performing a cross-site request always attaches the target
+		//     site's cookies. If either auth cookie is present we fall through to the
+		//     normal double-submit check, so cookie sessions keep their protection.
+		//   - A request without auth cookies cannot be forged into an authenticated
+		//     action: the credential has to be supplied explicitly by the caller.
+		//   - This middleware runs before RequireAuth, so the skip is based on the
+		//     request shape only. RequireAuth still fully validates the token (hash
+		//     lookup, revocation, expiry, active admin owner) and returns 401 for an
+		//     invalid one; the skip never authenticates anything by itself.
+		if isCookieLessAdminAPITokenRequest(c) {
+			c.Next()
+			return
+		}
+
 		// Read CSRF token from cookie
 		cookieToken, err := c.Cookie(utils.CSRFTokenCookie)
 		if err != nil || cookieToken == "" {
@@ -87,6 +106,39 @@ func CSRF() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isCookieLessAdminAPITokenRequest reports whether the request presents an admin
+// API token as its bearer credential and carries no session cookies.
+func isCookieLessAdminAPITokenRequest(c *gin.Context) bool {
+	bearer, ok := bearerCredential(c)
+	if !ok || !token.IsAdminAPIToken(bearer) {
+		return false
+	}
+	return !hasAuthCookie(c)
+}
+
+// bearerCredential extracts the credential from an "Authorization: Bearer ..." header.
+// The scheme match is exact ("Bearer"), matching RequireAuth: a value this function
+// rejects is still fully parsed by RequireAuth, so the two cannot disagree about
+// which requests are bearer-authenticated.
+func bearerCredential(c *gin.Context) (string, bool) {
+	parts := strings.SplitN(c.GetHeader("Authorization"), " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// hasAuthCookie reports whether the request carries an access or refresh token cookie.
+func hasAuthCookie(c *gin.Context) bool {
+	if v, err := c.Cookie(utils.AccessTokenCookie); err == nil && v != "" {
+		return true
+	}
+	if v, err := c.Cookie(utils.RefreshTokenCookie); err == nil && v != "" {
+		return true
+	}
+	return false
 }
 
 // isSafeMethod returns true for HTTP methods that do not mutate state.

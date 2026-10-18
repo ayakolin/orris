@@ -52,6 +52,10 @@ type batchRuleUseCase interface {
 	BatchUpdate(ctx context.Context, cmd usecases.BatchUpdateCommand) (*dto.BatchOperationResult, error)
 }
 
+type retargetRulesUseCase interface {
+	Execute(ctx context.Context, cmd usecases.RetargetCommand) (*usecases.RetargetResult, error)
+}
+
 type probeService interface {
 	ProbeRuleByShortID(ctx context.Context, shortID string, ipVersionOverride string) (*dto.RuleProbeResponse, error)
 }

@@ -25,6 +25,7 @@ import (
 	adminHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin"
 	adminResourceGroupHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/resourcegroup"
 	adminSubscriptionHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/subscription"
+	adminAPITokenHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admintoken"
 	forwardAgentAPIHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/api"
 	forwardAgentCrudHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/crud"
 	forwardAgentHubHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/hub"
@@ -55,6 +56,7 @@ type Router struct {
 	adminTelegramHandler           *adminHandlers.AdminTelegramHandler
 	adminNotificationService       *telegramAdminApp.ServiceDDD
 	settingHandler                 *adminHandlers.SettingHandler
+	adminAPITokenHandler           *adminAPITokenHandlers.Handler
 	settingService                 *settingApp.ServiceDDD
 	planHandler                    *handlers.PlanHandler
 	subscriptionTokenHandler       *handlers.SubscriptionTokenHandler
@@ -127,6 +129,7 @@ func NewRouter(userService *user.ServiceDDD, db *gorm.DB, cfg *config.Config, lo
 		adminTelegramHandler:           c.hdlrs.adminTelegramHandler,
 		adminNotificationService:       c.adminNotificationServiceDDD,
 		settingHandler:                 c.hdlrs.settingHandler,
+		adminAPITokenHandler:           c.hdlrs.adminAPITokenHandler,
 		settingService:                 c.settingServiceDDD,
 		planHandler:                    c.hdlrs.planHandler,
 		subscriptionTokenHandler:       c.hdlrs.subscriptionTokenHandler,

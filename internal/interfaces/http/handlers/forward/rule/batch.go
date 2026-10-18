@@ -35,15 +35,20 @@ type BatchUpdateForwardRulesRequest struct {
 }
 
 // BatchUpdateItem represents a single rule update.
-// Supports: name, remark, sort_order, agent_id (entry), exit_agent_id (exit).
+// Supports: name, remark, sort_order, agent_id (entry), exit_agent_id (exit),
+// target_address and target_port (static target).
+// target_address/target_port use the same update path as a single PUT, so they are
+// validated identically and setting them clears target_node_id.
 // Note: chain_agent_ids is NOT supported in batch update - use single rule update instead.
 type BatchUpdateItem struct {
-	RuleID      string  `json:"rule_id" binding:"required"`
-	Name        *string `json:"name,omitempty"`
-	Remark      *string `json:"remark,omitempty"`
-	SortOrder   *int    `json:"sort_order,omitempty"`
-	AgentID     *string `json:"agent_id,omitempty"`      // entry agent ID
-	ExitAgentID *string `json:"exit_agent_id,omitempty"` // exit agent ID (for entry type rules)
+	RuleID        string  `json:"rule_id" binding:"required"`
+	Name          *string `json:"name,omitempty"`
+	Remark        *string `json:"remark,omitempty"`
+	SortOrder     *int    `json:"sort_order,omitempty"`
+	AgentID       *string `json:"agent_id,omitempty"`      // entry agent ID
+	ExitAgentID   *string `json:"exit_agent_id,omitempty"` // exit agent ID (for entry type rules)
+	TargetAddress *string `json:"target_address,omitempty"`
+	TargetPort    *uint16 `json:"target_port,omitempty" binding:"omitempty,min=1"`
 }
 
 // BatchCreateRules handles POST /forward-rules/batch
@@ -284,6 +289,8 @@ func (h *Handler) BatchUpdateRules(c *gin.Context) {
 			SortOrder:        u.SortOrder,
 			AgentShortID:     u.AgentID,
 			ExitAgentShortID: u.ExitAgentID,
+			TargetAddress:    u.TargetAddress,
+			TargetPort:       u.TargetPort,
 		})
 	}
 

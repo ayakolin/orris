@@ -5,6 +5,7 @@ import (
 	adminHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin"
 	adminResourceGroupHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/resourcegroup"
 	adminSubscriptionHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/subscription"
+	adminAPITokenHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admintoken"
 	forwardAgentAPIHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/api"
 	forwardAgentCrudHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/crud"
 	forwardAgentHubHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/hub"
@@ -72,4 +73,5 @@ type allHandlers struct {
 	adminTrafficStatsHandler  *adminHandlers.TrafficStatsHandler
 	adminTelegramHandler      *adminHandlers.AdminTelegramHandler
 	settingHandler            *adminHandlers.SettingHandler
+	adminAPITokenHandler      *adminAPITokenHandlers.Handler
 }

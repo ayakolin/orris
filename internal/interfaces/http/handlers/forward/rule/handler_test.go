@@ -151,7 +151,7 @@ func newTestHandler(
 	return NewHandler(
 		createUC, getUC, updateUC, deleteUC, listUC,
 		enableUC, disableUC, resetTrafficUC, reorderUC,
-		batchUC, probeSvc, testutil.NewMockLogger(),
+		batchUC, nil, probeSvc, testutil.NewMockLogger(),
 	)
 }
 

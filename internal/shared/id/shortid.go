@@ -34,6 +34,7 @@ const (
 	PrefixSubscriptionUsageStats = "usagestat"
 	PrefixPasskeyCredential      = "pk"
 	PrefixAnnouncement           = "ann"
+	PrefixAdminAPIToken          = "apt" // admin API token record (not the token value itself)
 )
 
 // knownPrefixes is a list of all known prefixes sorted by length (longest first)
@@ -48,6 +49,7 @@ func init() {
 		PrefixSubscriptionToken,
 		PrefixTelegramBinding,
 		PrefixSubscriptionUsage,
+		PrefixAdminAPIToken,
 		PrefixPasskeyCredential,
 		PrefixPlanPricing,
 		PrefixResourceGroup,
@@ -368,4 +370,14 @@ func NewAnnouncementID() (string, error) {
 // ParseAnnouncementID extracts the short ID from an Announcement prefixed ID.
 func ParseAnnouncementID(prefixedID string) (string, error) {
 	return ExtractShortID(prefixedID, PrefixAnnouncement)
+}
+
+// NewAdminAPITokenID generates a new Admin API Token SID (apt_xxx).
+func NewAdminAPITokenID() (string, error) {
+	return NewSID(PrefixAdminAPIToken)
+}
+
+// ParseAdminAPITokenID extracts the short ID from an Admin API Token prefixed ID.
+func ParseAdminAPITokenID(prefixedID string) (string, error) {
+	return ExtractShortID(prefixedID, PrefixAdminAPIToken)
 }
