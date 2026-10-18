@@ -4,6 +4,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/orris-inc/orris/internal/application/forward/dto"
 	"github.com/orris-inc/orris/internal/domain/forward"
@@ -22,7 +23,7 @@ type BatchForwardRuleUseCase struct {
 	enableRuleUC     *EnableForwardRuleUseCase
 	disableRuleUC    *DisableForwardRuleUseCase
 	updateRuleUC     *UpdateForwardRuleUseCase
-	txMgr            *db.TransactionManager
+	txMgr            db.TransactionRunner
 	logger           logger.Interface
 }
 
@@ -35,7 +36,7 @@ func NewBatchForwardRuleUseCase(
 	enableRuleUC *EnableForwardRuleUseCase,
 	disableRuleUC *DisableForwardRuleUseCase,
 	updateRuleUC *UpdateForwardRuleUseCase,
-	txMgr *db.TransactionManager,
+	txMgr db.TransactionRunner,
 	logger logger.Interface,
 ) *BatchForwardRuleUseCase {
 	return &BatchForwardRuleUseCase{
@@ -84,7 +85,10 @@ type BatchUpdateCommand struct {
 }
 
 // BatchUpdateItem represents a single rule update.
-// Supports: name, remark, sort_order, agent_id (entry), exit_agent_id (exit).
+// Supports: name, remark, sort_order, agent_id (entry), exit_agent_id (exit),
+// target_address and target_port (static target).
+// target_address/target_port go through the same update path as a single PUT, so
+// validation is identical and setting them clears target_node_id.
 // Note: chain_agent_ids is NOT supported in batch update - use single rule update instead.
 type BatchUpdateItem struct {
 	RuleSID          string
@@ -93,6 +97,8 @@ type BatchUpdateItem struct {
 	SortOrder        *int
 	AgentShortID     *string // entry agent ID
 	ExitAgentShortID *string // exit agent ID (for entry type rules)
+	TargetAddress    *string
+	TargetPort       *uint16
 }
 
 // validateBatchSize validates the batch size is within limits.
@@ -479,9 +485,20 @@ func (uc *BatchForwardRuleUseCase) BatchUpdate(
 		Failed:    make([]dto.BatchOperationErr, 0),
 	}
 
+	// Collect config-sync notifications during the transaction and push them only
+	// after it commits, so agents never see a change that was rolled back.
+	// Validated SIDs are sorted for deterministic execution and notification order.
+	sortedSIDs := make([]string, 0, len(validation.validRules))
+	for sid := range validation.validRules {
+		sortedSIDs = append(sortedSIDs, sid)
+	}
+	sort.Strings(sortedSIDs)
+
+	txCtx, notifications := WithDeferredRuleNotifications(ctx)
+
 	// Execute all updates in a transaction using validated SIDs
-	txErr := uc.txMgr.RunInTransaction(ctx, func(txCtx context.Context) error {
-		for sid := range validation.validRules {
+	txErr := uc.txMgr.RunInTransaction(txCtx, func(txCtx context.Context) error {
+		for _, sid := range sortedSIDs {
 			update := updateMap[sid]
 			updateCmd := UpdateForwardRuleCommand{
 				ShortID:          update.RuleSID,
@@ -491,6 +508,8 @@ func (uc *BatchForwardRuleUseCase) BatchUpdate(
 				SortOrder:        update.SortOrder,
 				AgentShortID:     update.AgentShortID,
 				ExitAgentShortID: update.ExitAgentShortID,
+				TargetAddress:    update.TargetAddress,
+				TargetPort:       update.TargetPort,
 			}
 			if err := uc.updateRuleUC.Execute(txCtx, updateCmd); err != nil {
 				result.Failed = append(result.Failed, dto.BatchOperationErr{
@@ -508,6 +527,12 @@ func (uc *BatchForwardRuleUseCase) BatchUpdate(
 		// Transaction failed, clear succeeded list (all were rolled back)
 		uc.logger.Warnw("batch update transaction rolled back", "error", txErr)
 		result.Succeeded = make([]string, 0)
+	} else {
+		// Push to agents and re-sync node subscriptions only after a successful
+		// commit. Both were collected inside the transaction, so nothing is sent
+		// for work that was rolled back.
+		notifications.Flush(uc.updateRuleUC.ConfigSyncNotifier(), uc.logger)
+		notifications.FlushNodeSyncs(uc.updateRuleUC.NodeSubscriptionSyncer(), uc.logger)
 	}
 
 	uc.logger.Infow("batch update completed",

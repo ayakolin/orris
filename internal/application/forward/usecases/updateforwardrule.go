@@ -72,6 +72,18 @@ func (uc *UpdateForwardRuleUseCase) SetNodeConfigSyncer(syncer NodeConfigChangeN
 	uc.nodeConfigSyncer = syncer
 }
 
+// ConfigSyncNotifier returns the config sync notifier used by this use case.
+// Batch callers use it to flush notifications after their transaction commits.
+func (uc *UpdateForwardRuleUseCase) ConfigSyncNotifier() ConfigSyncNotifier {
+	return uc.configSyncSvc
+}
+
+// NodeSubscriptionSyncer returns the node subscription syncer used by this use
+// case. Batch callers use it to flush node re-syncs after their transaction commits.
+func (uc *UpdateForwardRuleUseCase) NodeSubscriptionSyncer() NodeSubscriptionSyncer {
+	return uc.syncer
+}
+
 // NewUpdateForwardRuleUseCase creates a new UpdateForwardRuleUseCase.
 func NewUpdateForwardRuleUseCase(
 	repo forward.Repository,
@@ -627,85 +639,48 @@ func (uc *UpdateForwardRuleUseCase) Execute(ctx context.Context, cmd UpdateForwa
 
 	uc.logger.Infow("forward rule updated successfully", "short_id", cmd.ShortID)
 
-	// Notify config sync asynchronously if rule is enabled (failure only logs warning, doesn't block)
+	// Notify config sync asynchronously if rule is enabled (failure only logs warning, doesn't block).
+	// Inside a deferred-notification context (batch update / retarget) the calls are
+	// collected and dispatched by the caller after the transaction commits.
 	if rule.IsEnabled() && uc.configSyncSvc != nil {
-		newAgentID := rule.AgentID()
-		newExitAgentIDs := rule.GetAllExitAgentIDs() // Includes both single and multiple exit agents
-		newChainAgentIDs := rule.ChainAgentIDs()
-		ruleType := rule.RuleType().String()
+		notifications := buildRuleChangeNotifications(
+			originalAgentID,
+			originalExitAgentIDs,
+			originalChainAgentIDs,
+			rule,
+		)
 
-		goroutine.SafeGo(uc.logger, "update-rule-notify-agents", func() {
-			// Notify entry agent
-			if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), newAgentID, cmd.ShortID, "updated"); err != nil {
-				uc.logger.Debugw("config sync notification skipped for entry agent", "rule_id", cmd.ShortID, "agent_id", newAgentID, "reason", err.Error())
-			}
-
-			// If entry agent changed, notify original agent to remove the rule
-			if originalAgentID != newAgentID {
-				if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), originalAgentID, cmd.ShortID, "deleted"); err != nil {
-					uc.logger.Debugw("config sync notification skipped for original entry agent", "rule_id", cmd.ShortID, "agent_id", originalAgentID, "reason", err.Error())
-				}
-			}
-
-			// For entry type rules, notify exit agent(s)
-			if ruleType == "entry" {
-				// Create map of original exit agents for quick lookup
-				originalExitAgentMap := make(map[uint]bool)
-				for _, agentID := range originalExitAgentIDs {
-					originalExitAgentMap[agentID] = true
-				}
-
-				// Notify new exit agents
-				for _, agentID := range newExitAgentIDs {
-					if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), agentID, cmd.ShortID, "updated"); err != nil {
-						uc.logger.Debugw("config sync notification skipped for exit agent", "rule_id", cmd.ShortID, "agent_id", agentID, "reason", err.Error())
-					}
-					// Remove from original map (we'll notify remaining agents for deletion)
-					delete(originalExitAgentMap, agentID)
-				}
-
-				// Notify removed exit agents
-				for agentID := range originalExitAgentMap {
-					if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), agentID, cmd.ShortID, "deleted"); err != nil {
-						uc.logger.Debugw("config sync notification skipped for removed exit agent", "rule_id", cmd.ShortID, "agent_id", agentID, "reason", err.Error())
+		if collector := deferredRuleNotificationsFromContext(ctx); collector != nil {
+			collector.add(notifications...)
+		} else {
+			goroutine.SafeGo(uc.logger, "update-rule-notify-agents", func() {
+				for _, notification := range notifications {
+					if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), notification.AgentID, notification.RuleShortID, notification.ChangeType); err != nil {
+						uc.logger.Debugw("config sync notification skipped",
+							"rule_id", notification.RuleShortID,
+							"agent_id", notification.AgentID,
+							"change_type", notification.ChangeType,
+							"reason", err.Error())
 					}
 				}
-			}
-
-			// For chain and direct_chain type rules, notify chain agents
-			if ruleType == "chain" || ruleType == "direct_chain" {
-				// Create map of original chain agents for quick lookup
-				originalChainAgentMap := make(map[uint]bool)
-				for _, agentID := range originalChainAgentIDs {
-					originalChainAgentMap[agentID] = true
-				}
-
-				// Notify new chain agents
-				for _, agentID := range newChainAgentIDs {
-					if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), agentID, cmd.ShortID, "updated"); err != nil {
-						uc.logger.Debugw("config sync notification skipped for chain agent", "rule_id", cmd.ShortID, "agent_id", agentID, "reason", err.Error())
-					}
-					// Remove from original map (we'll notify remaining agents for deletion)
-					delete(originalChainAgentMap, agentID)
-				}
-
-				// Notify removed chain agents
-				for agentID := range originalChainAgentMap {
-					if err := uc.configSyncSvc.NotifyRuleChange(context.Background(), agentID, cmd.ShortID, "deleted"); err != nil {
-						uc.logger.Debugw("config sync notification skipped for removed chain agent", "rule_id", cmd.ShortID, "agent_id", agentID, "reason", err.Error())
-					}
-				}
-			}
-		})
+			})
+		}
 	}
 
 	// Sync subscriptions to affected nodes so they pick up the rule changes immediately.
 	// Merge original and new affected nodes: when groups or target_node changes,
 	// both old nodes (stale data) and new nodes (missing data) need re-sync.
+	// Inside a deferred-notification context (batch update / retarget) the node IDs
+	// are collected and re-synced by the caller after the transaction commits, so a
+	// node never receives a snapshot of uncommitted state.
 	if uc.syncer != nil {
 		newNodeIDs := collectAffectedNodeIDs(ctx, rule, uc.nodeRepo, uc.logger)
 		mergedNodeIDs := mergeUniqueUints(originalNodeIDs, newNodeIDs)
 		for _, nodeID := range mergedNodeIDs {
+			if collector := deferredRuleNotificationsFromContext(ctx); collector != nil {
+				collector.addNodeSyncs(nodeID)
+				continue
+			}
 			goroutine.SafeGo(uc.logger, "update-rule-sync-node", func() {
 				if err := uc.syncer.SyncSubscriptionsToNode(context.Background(), nodeID); err != nil {
 					uc.logger.Warnw("failed to sync subscriptions to node after rule update",

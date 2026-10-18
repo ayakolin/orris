@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/orris-inc/orris/internal/domain/forward"
 	"github.com/orris-inc/orris/internal/infrastructure/persistence/mappers"
@@ -155,6 +156,38 @@ func (r *ForwardRuleRepositoryImpl) GetBySIDs(ctx context.Context, sids []string
 	return result, nil
 }
 
+// GetBySIDsForUpdate retrieves forward rules by SID while locking the matched
+// rows for the remainder of the transaction (SELECT ... FOR UPDATE). Callers use
+// it to revalidate a selection before mutating it, so a concurrent update cannot
+// be silently overwritten. It must be called with a transaction-bound context.
+func (r *ForwardRuleRepositoryImpl) GetBySIDsForUpdate(ctx context.Context, sids []string) (map[string]*forward.ForwardRule, error) {
+	if len(sids) == 0 {
+		return make(map[string]*forward.ForwardRule), nil
+	}
+
+	var ruleModels []*models.ForwardRuleModel
+
+	tx := db.GetTxFromContext(ctx, r.db)
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("sid IN ?", sids).
+		Find(&ruleModels).Error; err != nil {
+		r.logger.Errorw("failed to lock forward rules by SIDs", "count", len(sids), "error", err)
+		return nil, fmt.Errorf("failed to lock forward rules: %w", err)
+	}
+
+	result := make(map[string]*forward.ForwardRule, len(ruleModels))
+	for _, model := range ruleModels {
+		entity, err := r.mapper.ToEntity(model)
+		if err != nil {
+			r.logger.Errorw("failed to map forward rule model to entity", "sid", model.SID, "error", err)
+			return nil, fmt.Errorf("failed to map forward rule: %w", err)
+		}
+		result[model.SID] = entity
+	}
+
+	return result, nil
+}
+
 // GetByIDs retrieves multiple forward rules by their internal IDs.
 func (r *ForwardRuleRepositoryImpl) GetByIDs(ctx context.Context, ids []uint) (map[uint]*forward.ForwardRule, error) {
 	if len(ids) == 0 {
@@ -216,19 +249,19 @@ func (r *ForwardRuleRepositoryImpl) Update(ctx context.Context, rule *forward.Fo
 	result := tx.Model(&models.ForwardRuleModel{}).
 		Where("id = ?", model.ID).
 		Updates(map[string]any{
-			"name":               model.Name,
-			"agent_id":           model.AgentID,
-			"subscription_id":    model.SubscriptionID,
-			"listen_port":        model.ListenPort,
-			"listen_ip":          model.ListenIP,
-			"target_address":     model.TargetAddress,
-			"target_port":        model.TargetPort,
-			"target_node_id":     model.TargetNodeID,
-			"bind_ip":            model.BindIP,
-			"ip_version":         model.IPVersion,
-			"protocol":           model.Protocol,
-			"status":             model.Status,
-			"remark":             model.Remark,
+			"name":            model.Name,
+			"agent_id":        model.AgentID,
+			"subscription_id": model.SubscriptionID,
+			"listen_port":     model.ListenPort,
+			"listen_ip":       model.ListenIP,
+			"target_address":  model.TargetAddress,
+			"target_port":     model.TargetPort,
+			"target_node_id":  model.TargetNodeID,
+			"bind_ip":         model.BindIP,
+			"ip_version":      model.IPVersion,
+			"protocol":        model.Protocol,
+			"status":          model.Status,
+			"remark":          model.Remark,
 			// NOTE: upload_bytes/download_bytes are deliberately NOT updated here.
 			// Traffic counters are mutated only via UpdateTraffic (atomic increments
 			// from the periodic traffic-flush). Writing them from a possibly-stale

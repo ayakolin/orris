@@ -119,6 +119,11 @@ type RuleQuerier interface {
 	// ListByExternalSource returns all forward rules with the given external source.
 	// Used for querying rules imported from a specific external system.
 	ListByExternalSource(ctx context.Context, source string) ([]*ForwardRule, error)
+
+	// ListByTargetAddress returns all rules whose static target address equals address.
+	// Node-linked rules are excluded: they have no static target of their own.
+	// Used by the retarget operation.
+	ListByTargetAddress(ctx context.Context, address string) ([]*ForwardRule, error)
 }
 
 // RuleWriter defines create, update, and delete operations for forward rules.
@@ -196,6 +201,7 @@ type ListFilter struct {
 	Status           string
 	RuleType         string // Filter by rule type (direct, entry, chain, direct_chain, external)
 	ExternalSource   string // Filter by external source (only for external rules)
+	TargetAddress    string // Filter by exact static target address
 	OrderBy          string
 	Order            string
 	GroupIDs         []uint // Filter by resource group IDs (uses JSON_OVERLAPS on group_ids column)

@@ -213,6 +213,9 @@ func (m *MockForwardRuleRepository) List(ctx context.Context, filter forward.Lis
 		if filter.Status != "" && string(rule.Status()) != filter.Status {
 			continue
 		}
+		if filter.TargetAddress != "" && rule.TargetAddress() != filter.TargetAddress {
+			continue
+		}
 		rules = append(rules, rule)
 	}
 
@@ -646,6 +649,50 @@ func (m *MockForwardRuleRepository) ListByExternalSource(ctx context.Context, so
 	var rules []*forward.ForwardRule
 	for _, rule := range m.rules {
 		if rule.ExternalSource() == source {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
+}
+
+// GetBySIDsForUpdate mirrors the repository's locking read. The mock has no
+// transactions, so it simply returns the currently stored entities; tests that
+// need to simulate a concurrent edit mutate the rule inside their tx runner
+// before the callback body reads it.
+func (m *MockForwardRuleRepository) GetBySIDsForUpdate(ctx context.Context, sids []string) (map[string]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.getError != nil {
+		return nil, m.getError
+	}
+
+	result := make(map[string]*forward.ForwardRule, len(sids))
+	for _, sid := range sids {
+		if rule, ok := m.rulesByShortID[sid]; ok {
+			result[sid] = rule
+		}
+	}
+	return result, nil
+}
+
+// ListByTargetAddress returns all rules whose static target address equals address,
+// excluding node-linked rules.
+func (m *MockForwardRuleRepository) ListByTargetAddress(ctx context.Context, address string) ([]*forward.ForwardRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.listError != nil {
+		return nil, m.listError
+	}
+
+	var rules []*forward.ForwardRule
+	for _, rule := range m.rules {
+		if rule.TargetNodeID() != nil {
+			continue
+		}
+		if rule.TargetAddress() == address {
 			rules = append(rules, rule)
 		}
 	}

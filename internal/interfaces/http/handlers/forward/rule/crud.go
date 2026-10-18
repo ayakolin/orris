@@ -368,12 +368,23 @@ func (h *Handler) ListRules(c *gin.Context) {
 	// Parse include_user_rules parameter (default: false)
 	includeUserRules := c.Query("include_user_rules") == "true"
 
+	agentSID := c.Query("agent_id")
+	if agentSID != "" {
+		if err := id.ValidatePrefix(agentSID, id.PrefixForwardAgent); err != nil {
+			h.logger.Warnw("invalid agent_id filter", "agent_id", agentSID, "error", err, "ip", c.ClientIP())
+			utils.ErrorResponseWithError(c, errors.NewValidationError("invalid agent_id format, expected fa_xxxxx"))
+			return
+		}
+	}
+
 	query := usecases.ListForwardRulesQuery{
 		Page:             pagination.Page,
 		PageSize:         pagination.PageSize,
 		Name:             c.Query("name"),
 		Protocol:         c.Query("protocol"),
 		Status:           c.Query("status"),
+		AgentSID:         agentSID,
+		TargetAddress:    c.Query("target_address"),
 		OrderBy:          c.Query("order_by"),
 		Order:            c.Query("order"),
 		IncludeUserRules: includeUserRules,

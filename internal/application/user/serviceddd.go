@@ -2,14 +2,23 @@ package user
 
 import (
 	"context"
+	"time"
 
 	"github.com/orris-inc/orris/internal/application/user/dto"
 	"github.com/orris-inc/orris/internal/application/user/usecases"
 	domainUser "github.com/orris-inc/orris/internal/domain/user"
+	"github.com/orris-inc/orris/internal/shared/biztime"
 	"github.com/orris-inc/orris/internal/shared/errors"
 	"github.com/orris-inc/orris/internal/shared/id"
 	"github.com/orris-inc/orris/internal/shared/logger"
 )
+
+// AdminTokenRevoker revokes every admin API token owned by a user.
+// It is satisfied by admintoken.Repository. Optional: when unset, user deletion
+// leaves tokens untouched (they fail authentication once the owner is gone).
+type AdminTokenRevoker interface {
+	RevokeByUserID(ctx context.Context, userID uint, revokedAt time.Time) (int64, error)
+}
 
 // ServiceDDD is the application service that orchestrates use cases
 type ServiceDDD struct {
@@ -19,7 +28,15 @@ type ServiceDDD struct {
 	getUserUC        *usecases.GetUserUseCase
 	updateProfileUC  *usecases.UpdateProfileUseCase
 	changePasswordUC *usecases.ChangePasswordUseCase
+	tokenRevoker     AdminTokenRevoker
 	logger           logger.Interface
+}
+
+// SetAdminTokenRevoker wires the admin API token revoker used when a user is
+// deleted. Uses setter injection because the token repository is created by the
+// HTTP container, after this service.
+func (s *ServiceDDD) SetAdminTokenRevoker(revoker AdminTokenRevoker) {
+	s.tokenRevoker = revoker
 }
 
 // NewServiceDDD creates a new DDD application service
@@ -87,7 +104,25 @@ func (s *ServiceDDD) ListUsers(ctx context.Context, request dto.ListUsersRequest
 
 // DeleteUser deletes a user by external SID (Stripe-style ID)
 func (s *ServiceDDD) DeleteUser(ctx context.Context, sid string) error {
-	// SID is stored with prefix (usr_xxx), use directly
+	// SID is stored with prefix (usr_xxx), use directly.
+	// Revoke the user's admin API tokens first so a leaked token does not outlive
+	// the account. Lookup failure is not fatal: the delete still proceeds, and a
+	// token of a deleted user fails authentication anyway.
+	if s.tokenRevoker != nil {
+		if existing, err := s.userRepo.GetBySID(ctx, sid); err != nil {
+			s.logger.Warnw("failed to look up user before deleting admin API tokens",
+				"user_sid", sid, "error", err)
+		} else if existing != nil {
+			if revoked, err := s.tokenRevoker.RevokeByUserID(ctx, existing.ID(), biztime.NowUTC()); err != nil {
+				s.logger.Warnw("failed to revoke admin API tokens for deleted user",
+					"user_sid", sid, "user_id", existing.ID(), "error", err)
+			} else if revoked > 0 {
+				s.logger.Infow("revoked admin API tokens for deleted user",
+					"user_sid", sid, "user_id", existing.ID(), "count", revoked)
+			}
+		}
+	}
+
 	return s.userRepo.DeleteBySID(ctx, sid)
 }
 

@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	adminUsecases "github.com/orris-inc/orris/internal/application/admin/usecases"
+	adminTokenUsecases "github.com/orris-inc/orris/internal/application/admintoken/usecases"
 	forwardServices "github.com/orris-inc/orris/internal/application/forward/services"
 	forwardUsecases "github.com/orris-inc/orris/internal/application/forward/usecases"
 	nodeServices "github.com/orris-inc/orris/internal/application/node/services"
@@ -26,7 +27,6 @@ import (
 	telegramAdminUsecases "github.com/orris-inc/orris/internal/application/telegram/admin/usecases"
 	"github.com/orris-inc/orris/internal/application/user/helpers"
 	"github.com/orris-inc/orris/internal/application/user/usecases"
-	"github.com/orris-inc/orris/internal/interfaces/adapters"
 	"github.com/orris-inc/orris/internal/infrastructure/auth"
 	"github.com/orris-inc/orris/internal/infrastructure/cache"
 	"github.com/orris-inc/orris/internal/infrastructure/config"
@@ -39,10 +39,12 @@ import (
 	telegramInfra "github.com/orris-inc/orris/internal/infrastructure/telegram"
 	"github.com/orris-inc/orris/internal/infrastructure/template"
 	"github.com/orris-inc/orris/internal/infrastructure/token"
+	"github.com/orris-inc/orris/internal/interfaces/adapters"
 	"github.com/orris-inc/orris/internal/interfaces/http/handlers"
 	adminHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin"
 	adminResourceGroupHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/resourcegroup"
 	adminSubscriptionHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/subscription"
+	adminAPITokenHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admintoken"
 	forwardAgentAPIHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/api"
 	forwardAgentCrudHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/crud"
 	forwardAgentHubHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/forward/agent/hub"
@@ -108,6 +110,43 @@ func (c *Container) initInfrastructure() {
 	c.hourlyTrafficCache = cache.NewRedisHourlyTrafficCache(c.redis, log)
 }
 
+// initAdminAPITokens wires the admin API token generator, use cases and handler.
+// It runs during infrastructure initialization because the auth middleware needs
+// the authenticator before any route is registered.
+func (c *Container) initAdminAPITokens() {
+	log := c.log
+	repos := c.repos
+
+	// Credential and account remediation must also retire the user's admin API
+	// tokens, so a leaked token cannot outlive a password reset or user deletion.
+	if c.userService != nil {
+		c.userService.SetAdminTokenRevoker(repos.adminAPITokenRepo)
+	}
+
+	ucs := c.ucs
+	generator := token.NewAdminAPITokenGenerator()
+	ucs.authenticateAdminAPITokenUC = adminTokenUsecases.NewAuthenticateAdminAPITokenUseCase(
+		repos.adminAPITokenRepo, repos.userRepo, generator, log,
+	)
+	ucs.createAdminAPITokenUC = adminTokenUsecases.NewCreateAdminAPITokenUseCase(
+		repos.adminAPITokenRepo, repos.userRepo, generator, log,
+	)
+	ucs.listAdminAPITokensUC = adminTokenUsecases.NewListAdminAPITokensUseCase(
+		repos.adminAPITokenRepo, repos.userRepo, log,
+	)
+	ucs.getAdminAPITokenUC = adminTokenUsecases.NewGetAdminAPITokenUseCase(
+		repos.adminAPITokenRepo, repos.userRepo, log,
+	)
+	ucs.revokeAdminAPITokenUC = adminTokenUsecases.NewRevokeAdminAPITokenUseCase(repos.adminAPITokenRepo, log)
+	ucs.deleteAdminAPITokenUC = adminTokenUsecases.NewDeleteAdminAPITokenUseCase(repos.adminAPITokenRepo, log)
+
+	hdlrs := c.hdlrs
+	hdlrs.adminAPITokenHandler = adminAPITokenHandlers.NewHandler(
+		ucs.createAdminAPITokenUC, ucs.listAdminAPITokensUC, ucs.getAdminAPITokenUC,
+		ucs.revokeAdminAPITokenUC, ucs.deleteAdminAPITokenUC, log,
+	)
+}
+
 // initRedis creates and tests the Redis client connection.
 func initRedis(cfg *config.Config, log logger.Interface) *redis.Client {
 	redisClient := redis.NewClient(&redis.Options{
@@ -149,6 +188,7 @@ func newRepositories(db *gorm.DB, log logger.Interface) *repositories {
 		settingRepo:                repository.NewSystemSettingRepository(db, log),
 		telegramBindingRepo:        repository.NewTelegramBindingRepository(db, log),
 		adminBindingRepo:           repository.NewAdminTelegramBindingRepository(db, log),
+		adminAPITokenRepo:          repository.NewAdminAPITokenRepository(db),
 	}
 }
 
@@ -475,6 +515,7 @@ func (c *Container) initSettingsAndAuth() {
 	ucs.requestResetUC = usecases.NewRequestPasswordResetUseCase(repos.userRepo, dynamicEmailSvc, c.redis, log)
 	ucs.resetPasswordUC = usecases.NewResetPasswordUseCase(repos.userRepo, repos.sessionRepo, hasher, dynamicEmailSvc, c.settingServiceDDD, log)
 	ucs.adminResetPasswordUC = usecases.NewAdminResetPasswordUseCase(repos.userRepo, repos.sessionRepo, hasher, dynamicEmailSvc, c.settingServiceDDD, log)
+	ucs.adminResetPasswordUC.SetAdminTokenRevoker(repos.adminAPITokenRepo)
 	ucs.initiateOAuthUC = usecases.NewInitiateOAuthLoginUseCase(dynamicGoogleClient, dynamicGitHubClient, log, stateStore)
 	ucs.handleOAuthUC = usecases.NewHandleOAuthCallbackUseCase(
 		repos.userRepo, repos.oauthRepo, repos.sessionRepo,
@@ -1013,6 +1054,11 @@ func (c *Container) initForward() {
 		ucs.updateForwardRuleUC, txMgr, log,
 	)
 
+	// Initialize retarget use case (shares the single-update path and transaction manager)
+	ucs.retargetForwardRulesUC = forwardUsecases.NewRetargetForwardRulesUseCase(
+		repos.forwardRuleRepo, repos.forwardAgentRepo, ucs.updateForwardRuleUC, txMgr, log,
+	)
+
 	// Initialize user forward rule handler
 	hdlrs.userForwardRuleHandler = forwardUserHandlers.NewHandler(
 		ucs.createUserForwardRuleUC, ucs.listUserForwardRulesUC, ucs.getUserForwardUsageUC,
@@ -1053,7 +1099,7 @@ func (c *Container) initForward() {
 		ucs.deleteForwardRuleUC, ucs.listForwardRulesUC,
 		ucs.enableForwardRuleUC, ucs.disableForwardRuleUC,
 		ucs.resetForwardTrafficUC, ucs.reorderForwardRulesUC,
-		ucs.batchForwardRuleUC, probeService, log,
+		ucs.batchForwardRuleUC, ucs.retargetForwardRulesUC, probeService, log,
 	)
 
 	// Initialize agent hub handler

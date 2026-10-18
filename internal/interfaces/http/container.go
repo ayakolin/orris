@@ -145,6 +145,10 @@ func NewContainer(userService *user.ServiceDDD, db *gorm.DB, cfg *config.Config,
 	// Section 2: Subscription - UseCases, Handlers, Scheduler Jobs
 	c.initSubscription()
 
+	// Admin API tokens (after the use case and handler holders are allocated)
+	c.initAdminAPITokens()
+	c.authMiddleware.SetAdminAPITokenAuthenticator(c.ucs.authenticateAdminAPITokenUC)
+
 	// Section 3: Node - UseCases, Handlers, Middlewares
 	c.initNode()
 
@@ -165,4 +169,3 @@ func NewContainer(userService *user.ServiceDDD, db *gorm.DB, cfg *config.Config,
 
 	return c
 }
-

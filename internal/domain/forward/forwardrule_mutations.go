@@ -83,9 +83,16 @@ func (r *ForwardRule) UpdateListenIP(listenIP string) error {
 	return nil
 }
 
-// UpdateTarget updates the target address and port.
-// This will clear the targetNodeID when setting static address.
-func (r *ForwardRule) UpdateTarget(address string, port uint16) error {
+// ValidateTargetAddress validates a static target address (IP or RFC 1123 host).
+// Exported so pre-flight validation cannot drift from the UpdateTarget invariant.
+func ValidateTargetAddress(address string) error {
+	return validateAddress(address)
+}
+
+// ValidateTarget validates a static target using the same rules as UpdateTarget.
+// It is exported so operations that validate before writing (for example a batch
+// retarget) cannot drift from the invariant enforced here.
+func ValidateTarget(address string, port uint16) error {
 	if address == "" {
 		return fmt.Errorf("target address cannot be empty")
 	}
@@ -94,6 +101,15 @@ func (r *ForwardRule) UpdateTarget(address string, port uint16) error {
 	}
 	if err := validateAddress(address); err != nil {
 		return fmt.Errorf("invalid target address: %w", err)
+	}
+	return nil
+}
+
+// UpdateTarget updates the target address and port.
+// This will clear the targetNodeID when setting static address.
+func (r *ForwardRule) UpdateTarget(address string, port uint16) error {
+	if err := ValidateTarget(address, port); err != nil {
+		return err
 	}
 
 	if r.targetAddress == address && r.targetPort == port && r.targetNodeID == nil {

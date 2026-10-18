@@ -39,6 +39,9 @@ func (r *ForwardRuleRepositoryImpl) List(ctx context.Context, filter forward.Lis
 	if filter.RuleType != "" {
 		query = query.Where("rule_type = ?", filter.RuleType)
 	}
+	if filter.TargetAddress != "" {
+		query = query.Where("target_address = ?", filter.TargetAddress)
+	}
 	if filter.ExternalSource != "" {
 		query = query.Where("external_source = ?", filter.ExternalSource)
 	}
@@ -542,6 +545,29 @@ func (r *ForwardRuleRepositoryImpl) ListByExternalSource(ctx context.Context, so
 		Find(&ruleModels).Error; err != nil {
 		r.logger.Errorw("failed to list forward rules by external source", "source", source, "error", err)
 		return nil, fmt.Errorf("failed to list forward rules by external source: %w", err)
+	}
+
+	entities, err := r.mapper.ToEntities(ruleModels)
+	if err != nil {
+		r.logger.Errorw("failed to map forward rule models to entities", "error", err)
+		return nil, fmt.Errorf("failed to map forward rules: %w", err)
+	}
+
+	return entities, nil
+}
+
+// ListByTargetAddress returns all rules whose static target address equals address.
+// Rules linked to a node are excluded because they do not own a static target.
+func (r *ForwardRuleRepositoryImpl) ListByTargetAddress(ctx context.Context, address string) ([]*forward.ForwardRule, error) {
+	var ruleModels []*models.ForwardRuleModel
+
+	tx := db.GetTxFromContext(ctx, r.db)
+	if err := tx.
+		Where("target_address = ?", address).
+		Where("target_node_id IS NULL").
+		Find(&ruleModels).Error; err != nil {
+		r.logger.Errorw("failed to list forward rules by target address", "target_address", address, "error", err)
+		return nil, fmt.Errorf("failed to list forward rules by target address: %w", err)
 	}
 
 	entities, err := r.mapper.ToEntities(ruleModels)

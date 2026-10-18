@@ -110,6 +110,11 @@ func (r *Router) SetupRoutes(cfg *config.Config) {
 		})
 	}
 
+	routes.SetupAdminAPITokenRoutes(r.engine, &routes.AdminAPITokenRouteConfig{
+		AdminAPITokenHandler: r.adminAPITokenHandler,
+		AuthMiddleware:       r.authMiddleware,
+	})
+
 	routes.SetupForwardRoutes(r.engine, &routes.ForwardRouteConfig{
 		ForwardRuleHandler:          r.forwardRuleHandler,
 		ForwardAgentHandler:         r.forwardAgentHandler,

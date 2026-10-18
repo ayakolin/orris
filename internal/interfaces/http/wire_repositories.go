@@ -1,6 +1,7 @@
 package http
 
 import (
+	"github.com/orris-inc/orris/internal/domain/admintoken"
 	"github.com/orris-inc/orris/internal/domain/forward"
 	"github.com/orris-inc/orris/internal/domain/node"
 	"github.com/orris-inc/orris/internal/domain/notification"
@@ -35,4 +36,5 @@ type repositories struct {
 	settingRepo                setting.Repository
 	telegramBindingRepo        *repository.TelegramBindingRepository
 	adminBindingRepo           *repository.AdminTelegramBindingRepository
+	adminAPITokenRepo          admintoken.Repository
 }

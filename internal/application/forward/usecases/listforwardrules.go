@@ -19,6 +19,8 @@ type ListForwardRulesQuery struct {
 	Name             string
 	Protocol         string
 	Status           string
+	AgentSID         string // filter by entry agent SID (fa_xxx)
+	TargetAddress    string // filter by exact static target address
 	OrderBy          string
 	Order            string
 	IncludeUserRules bool // When true, includes rules created by users; when false, excludes them
@@ -82,9 +84,31 @@ func (uc *ListForwardRulesUseCase) Execute(ctx context.Context, query ListForwar
 		Name:             query.Name,
 		Protocol:         query.Protocol,
 		Status:           query.Status,
+		TargetAddress:    query.TargetAddress,
 		OrderBy:          query.OrderBy,
 		Order:            query.Order,
 		IncludeUserRules: query.IncludeUserRules,
+	}
+
+	// Resolve the agent SID filter to the internal agent ID used by the WHERE clause.
+	// An unknown agent yields an empty page: a list filter never fails on a value
+	// that is syntactically valid but references nothing.
+	if query.AgentSID != "" {
+		agent, err := uc.agentRepo.GetBySID(ctx, query.AgentSID)
+		if err != nil {
+			uc.logger.Errorw("failed to resolve agent filter", "agent_id", query.AgentSID, "error", err)
+			return nil, fmt.Errorf("failed to resolve agent filter: %w", err)
+		}
+		if agent == nil {
+			uc.logger.Debugw("agent filter references an unknown agent", "agent_id", query.AgentSID)
+			return &ListForwardRulesResult{
+				Rules: []*dto.ForwardRuleDTO{},
+				Total: 0,
+				Page:  query.Page,
+				Pages: 0,
+			}, nil
+		}
+		filter.AgentID = agent.ID()
 	}
 
 	rules, total, err := uc.repo.List(ctx, filter)
