@@ -22,6 +22,7 @@ type Config struct {
 	Forward      sharedConfig.ForwardConfig      `mapstructure:"forward"`
 	Admin        sharedConfig.AdminConfig        `mapstructure:"admin"`
 	Telegram     sharedConfig.TelegramConfig     `mapstructure:"telegram"`
+	Webhook      sharedConfig.WebhookConfig      `mapstructure:"webhook"`
 	WebAuthn     sharedConfig.WebAuthnConfig     `mapstructure:"webauthn"`
 }
 
@@ -177,6 +178,11 @@ func setDefaults() {
 	viper.SetDefault("telegram.bot_token", "")
 	viper.SetDefault("telegram.webhook_url", "")
 	viper.SetDefault("telegram.webhook_secret", "")
+
+	// Webhook defaults (empty URL/Secret disables outbound events)
+	viper.SetDefault("webhook.url", "")
+	viper.SetDefault("webhook.secret", "")
+	viper.SetDefault("webhook.traffic_threshold_percent", 90)
 
 	// WebAuthn defaults - derived from server config if not explicitly set
 	viper.SetDefault("webauthn.rp_id", "")

@@ -204,6 +204,23 @@ func (t *TelegramConfig) UsePolling() bool {
 	return t.WebhookURL == ""
 }
 
+// WebhookConfig holds outbound node-watch webhook configuration.
+// Both URL and Secret must be set for the feature to be active; otherwise all
+// emissions are no-ops.
+type WebhookConfig struct {
+	// URL is the node-watch receiver endpoint (e.g. http://127.0.0.1:9787/event)
+	URL string `mapstructure:"url"`
+	// Secret is the HMAC-SHA256 signing key shared with the receiver
+	Secret string `mapstructure:"secret"`
+	// TrafficThresholdPercent is the usage percentage that triggers traffic.threshold.
+	TrafficThresholdPercent int `mapstructure:"traffic_threshold_percent"`
+}
+
+// IsEnabled returns true when the webhook has both an endpoint and a secret.
+func (w *WebhookConfig) IsEnabled() bool {
+	return w.URL != "" && w.Secret != ""
+}
+
 // WebAuthnConfig holds WebAuthn/Passkey configuration
 type WebAuthnConfig struct {
 	// RPID is the relying party identifier (domain name)

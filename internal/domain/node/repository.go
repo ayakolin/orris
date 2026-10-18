@@ -24,6 +24,8 @@ type OfflineNodeInfo struct {
 	Name             string
 	LastSeenAt       time.Time
 	MuteNotification bool
+	// PublicIPv4 is the last public IPv4 reported by the node, when set.
+	PublicIPv4 *string
 }
 
 // NodeMetadata holds lightweight node metadata for SSE broadcasting.

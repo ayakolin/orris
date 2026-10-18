@@ -39,6 +39,7 @@ import (
 	telegramInfra "github.com/orris-inc/orris/internal/infrastructure/telegram"
 	"github.com/orris-inc/orris/internal/infrastructure/template"
 	"github.com/orris-inc/orris/internal/infrastructure/token"
+	"github.com/orris-inc/orris/internal/infrastructure/webhook"
 	"github.com/orris-inc/orris/internal/interfaces/adapters"
 	"github.com/orris-inc/orris/internal/interfaces/http/handlers"
 	adminHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin"
@@ -108,6 +109,14 @@ func (c *Container) initInfrastructure() {
 
 	// Initialize hourly traffic cache for Redis-based hourly data queries and daily aggregation
 	c.hourlyTrafficCache = cache.NewRedisHourlyTrafficCache(c.redis, log)
+
+	// Initialize outbound webhook notifier (no-op unless url and secret are set)
+	c.webhookNotifier = webhook.NewNotifier(cfg.Webhook, log)
+	c.webhookState = webhook.NewStateStore(c.redis, log)
+	c.webhookEmitter = webhook.NewEmitter(c.webhookNotifier, c.webhookState, c.repos.nodeRepoImpl, cfg.Webhook, log)
+	if cfg.Webhook.IsEnabled() {
+		log.Infow("outbound webhook enabled", "host", webhook.LogHost(cfg.Webhook.URL))
+	}
 }
 
 // initAdminAPITokens wires the admin API token generator, use cases and handler.
@@ -885,6 +894,10 @@ func (c *Container) initForward() {
 	ucs.reportRuleSyncStatusUC = forwardUsecases.NewReportRuleSyncStatusUseCase(
 		repos.forwardAgentRepo, ruleSyncStatusAdapter, repos.forwardRuleRepo, log,
 	)
+	if c.cfg.Webhook.IsEnabled() {
+		// Outbound webhook: rule.failed / rule.recovered on status transitions
+		ucs.reportRuleSyncStatusUC.SetRuleStatusObserver(c.webhookEmitter)
+	}
 
 	// Initialize forward traffic recorder adapter
 	forwardTrafficRecorder := adapters.NewForwardTrafficRecorderAdapter(c.hourlyTrafficCache, log)
@@ -1245,6 +1258,9 @@ func (c *Container) initCallbacksAndNotifiers() {
 			return
 		}
 
+		// Emit outbound webhook (edge-triggered via the shared state store)
+		c.webhookEmitter.Node(ctx, n, webhook.EventNodeOnline, "websocket_connected")
+
 		// Broadcast SSE event locally
 		c.adminHub.BroadcastNodeOnline(n.SID(), n.Name())
 
@@ -1296,6 +1312,10 @@ func (c *Container) initCallbacksAndNotifiers() {
 		if n == nil {
 			return
 		}
+
+		// Emit outbound webhook (edge-triggered via the shared state store)
+		c.webhookEmitter.Node(ctx, n, webhook.EventNodeOffline, "websocket_closed")
+
 		c.adminHub.BroadcastNodeOffline(n.SID(), n.Name())
 
 		// Publish status event for cross-instance SSE relay
@@ -1334,6 +1354,9 @@ func (c *Container) initCallbacksAndNotifiers() {
 		if agent == nil {
 			return
 		}
+
+		// Emit outbound webhook (edge-triggered via the shared state store)
+		c.webhookEmitter.Agent(ctx, agent, webhook.EventAgentOnline, "websocket_connected")
 
 		c.adminHub.BroadcastForwardAgentOnline(agent.SID(), agent.Name())
 
@@ -1390,6 +1413,10 @@ func (c *Container) initCallbacksAndNotifiers() {
 		if agent == nil {
 			return
 		}
+
+		// Emit outbound webhook (edge-triggered via the shared state store)
+		c.webhookEmitter.Agent(ctx, agent, webhook.EventAgentOffline, "websocket_closed")
+
 		c.adminHub.BroadcastForwardAgentOffline(agent.SID(), agent.Name())
 
 		// Publish status event for cross-instance SSE relay
@@ -1407,6 +1434,16 @@ func (c *Container) initCallbacksAndNotifiers() {
 
 	// Set config change notifier for node update use case
 	ucs.updateNodeUC.SetConfigChangeNotifier(c.nodeConfigSyncService)
+
+	// Outbound webhook heartbeat watch: independent of Telegram, detects
+	// resources that are still connected but stopped reporting. Skipped
+	// entirely when the webhook is disabled.
+	if c.cfg.Webhook.IsEnabled() {
+		webhookWatcher := webhook.NewWatcher(repos.forwardAgentRepo, repos.nodeRepoImpl, c.webhookNotifier, c.webhookState, log)
+		if err := c.schedulerManager.RegisterWebhookJobs(webhookWatcher); err != nil {
+			log.Warnw("failed to register webhook heartbeat job", "error", err)
+		}
+	}
 
 	// Set subscription change notifier for subscription use cases
 	ucs.createSubscriptionUC.SetSubscriptionNotifier(c.subscriptionSyncService)
@@ -1490,6 +1527,9 @@ func (c *Container) initRemainingHandlers() {
 	hdlrs.nodeHubHandler.SetQuotaCache(c.nodeQuotaCacheAdapter)
 	hdlrs.nodeHubHandler.SetQuotaLoader(c.nodeQuotaLoaderAdapter)
 	hdlrs.nodeHubHandler.SetUsageReader(c.nodeUsageReaderAdapter)
+	if c.cfg.Webhook.IsEnabled() {
+		hdlrs.nodeHubHandler.SetTrafficThresholdObserver(c.webhookEmitter)
+	}
 	hdlrs.nodeHubHandler.SetReportOnlineSubscriptionsUC(ucs.reportOnlineSubscriptionsUC)
 
 	// Initialize node SSE handler

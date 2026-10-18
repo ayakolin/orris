@@ -541,7 +541,7 @@ func (r *NodeRepositoryImpl) FindExpiringNodes(ctx context.Context, withinDays i
 	if err := r.db.WithContext(ctx).
 		Model(&models.NodeModel{}).
 		Select("id, sid, name, expires_at, cost_label").
-		Where("status = ?", "active").       // Only active nodes need expiring notification
+		Where("status = ?", "active"). // Only active nodes need expiring notification
 		Where("expires_at IS NOT NULL").
 		Where("expires_at > ?", now).        // Not already expired
 		Where("expires_at <= ?", threshold). // Within threshold
@@ -588,11 +588,12 @@ func (r *NodeRepositoryImpl) FindOfflineNodes(ctx context.Context, cutoff time.T
 		Name             string    `gorm:"column:name"`
 		LastSeenAt       time.Time `gorm:"column:last_seen_at"`
 		MuteNotification bool      `gorm:"column:mute_notification"`
+		PublicIPv4       *string   `gorm:"column:public_ipv4"`
 	}
 
 	if err := r.db.WithContext(ctx).
 		Model(&models.NodeModel{}).
-		Select("id, sid, name, last_seen_at, mute_notification").
+		Select("id, sid, name, last_seen_at, mute_notification, public_ipv4").
 		Where("last_seen_at IS NOT NULL").
 		Where("last_seen_at < ?", cutoff).
 		Find(&results).Error; err != nil {
@@ -608,6 +609,7 @@ func (r *NodeRepositoryImpl) FindOfflineNodes(ctx context.Context, cutoff time.T
 			Name:             res.Name,
 			LastSeenAt:       res.LastSeenAt.UTC(),
 			MuteNotification: res.MuteNotification,
+			PublicIPv4:       res.PublicIPv4,
 		})
 	}
 

@@ -58,6 +58,13 @@ telegram:
   webhook_url: ""     # ORRIS_TELEGRAM_WEBHOOK_URL (optional, auto-derived from server.base_url if empty)
   webhook_secret: ""  # ORRIS_TELEGRAM_WEBHOOK_SECRET (optional)
 
+# Node-watch webhook: outbound signed events for agent/node/rule/traffic monitoring.
+# Empty url or secret = disabled (no events are sent, no worker is started).
+webhook:
+  url: ""                       # ORRIS_WEBHOOK_URL (receiver endpoint, e.g. http://127.0.0.1:9787/event)
+  secret: ""                    # ORRIS_WEBHOOK_SECRET (HMAC-SHA256 signing key shared with the receiver)
+  traffic_threshold_percent: 90 # ORRIS_WEBHOOK_TRAFFIC_THRESHOLD_PERCENT (default 90; 0 disables traffic.threshold)
+
 # WebAuthn/Passkey Configuration (auto-derived from server.base_url)
 # rp_id: extracted from server.base_url hostname
 # rp_origins: server.base_url + server.allowed_origins

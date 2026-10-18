@@ -21,6 +21,7 @@ import (
 	"github.com/orris-inc/orris/internal/infrastructure/scheduler"
 	"github.com/orris-inc/orris/internal/infrastructure/services"
 	telegramInfra "github.com/orris-inc/orris/internal/infrastructure/telegram"
+	"github.com/orris-inc/orris/internal/infrastructure/webhook"
 	"github.com/orris-inc/orris/internal/interfaces/http/handlers"
 	adminHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin"
 	adminResourceGroupHandlers "github.com/orris-inc/orris/internal/interfaces/http/handlers/admin/resourcegroup"
@@ -92,6 +93,7 @@ type Router struct {
 	subscriptionTrafficBuffer      *nodeServices.SubscriptionTrafficBuffer
 	subscriptionTrafficFlushDone   chan struct{}
 	schedulerManager               *scheduler.SchedulerManager
+	webhookNotifier                *webhook.Notifier
 	usdtServiceManager             *infraPayment.USDTServiceManager
 	hubEventBusCancel              context.CancelFunc
 	hubEventBusCancelMu            *sync.Mutex
@@ -165,6 +167,7 @@ func NewRouter(userService *user.ServiceDDD, db *gorm.DB, cfg *config.Config, lo
 		subscriptionTrafficBuffer:      c.subscriptionTrafficBuffer,
 		subscriptionTrafficFlushDone:   c.subscriptionTrafficFlushDone,
 		schedulerManager:               c.schedulerManager,
+		webhookNotifier:                c.webhookNotifier,
 		usdtServiceManager:             c.usdtServiceManager,
 		hubEventBusCancel:              c.hubEventBusCancel,
 		hubEventBusCancelMu:            &c.hubEventBusCancelMu,
@@ -209,6 +212,12 @@ func (r *Router) Shutdown() {
 		if err := r.schedulerManager.Stop(); err != nil {
 			r.logger.Errorw("failed to stop scheduler manager", "error", err)
 		}
+	}
+
+	// Stop the outbound webhook worker last so events produced by the shutdown
+	// sequence above are not queued into a dead notifier.
+	if r.webhookNotifier != nil {
+		r.webhookNotifier.Close()
 	}
 
 	// Stop USDT monitor scheduler (managed by USDTServiceManager separately)

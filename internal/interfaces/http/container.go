@@ -27,6 +27,7 @@ import (
 	"github.com/orris-inc/orris/internal/infrastructure/services"
 	telegramInfra "github.com/orris-inc/orris/internal/infrastructure/telegram"
 	"github.com/orris-inc/orris/internal/infrastructure/template"
+	"github.com/orris-inc/orris/internal/infrastructure/webhook"
 	"github.com/orris-inc/orris/internal/interfaces/adapters"
 	"github.com/orris-inc/orris/internal/interfaces/http/middleware"
 	"github.com/orris-inc/orris/internal/shared/logger"
@@ -122,6 +123,11 @@ type Container struct {
 	nodeQuotaLoaderAdapter         *adapters.NodeSubscriptionQuotaLoaderAdapter
 	nodeUsageReaderAdapter         *adapters.NodeSubscriptionUsageReaderAdapter
 	onlineSubscriptionTracker      *adapters.OnlineSubscriptionTrackerAdapter
+
+	// Webhook (outbound node-watch events)
+	webhookNotifier *webhook.Notifier
+	webhookState    *webhook.StateStore
+	webhookEmitter  *webhook.Emitter
 
 	// User service (passed from outside)
 	userService *user.ServiceDDD
