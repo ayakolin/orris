@@ -215,6 +215,8 @@ type OfflineAgentInfo struct {
 	Name             string
 	LastSeenAt       time.Time
 	MuteNotification bool
+	// PublicAddress is the configured public address of the agent, when set.
+	PublicAddress string
 }
 
 // AgentMetadata holds lightweight agent metadata for SSE broadcasting.

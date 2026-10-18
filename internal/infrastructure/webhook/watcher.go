@@ -83,8 +83,8 @@ func (w *Watcher) Run(ctx context.Context) {
 	now := w.now().UTC()
 	cutoff := now.Add(-shared.DefaultOnlineTimeout)
 
-	agentsOffline, agentsOnline := w.checkAgents(ctx, cutoff, now)
-	nodesOffline, nodesOnline := w.checkNodes(ctx, cutoff, now)
+	agentsOffline, agentsOnline := w.checkAgents(ctx, cutoff, now, w.state.Snapshot(ctx, "agent:"))
+	nodesOffline, nodesOnline := w.checkNodes(ctx, cutoff, now, w.state.Snapshot(ctx, "node:"))
 
 	if total := agentsOffline + agentsOnline + nodesOffline + nodesOnline; total > 0 {
 		w.logger.Infow("webhook heartbeat watch emitted events",
@@ -100,7 +100,7 @@ func (w *Watcher) Run(ctx context.Context) {
 // checkAgents emits agent.offline for stale agents and then agent.online for
 // agents that were previously stale. It returns the number of events emitted
 // per direction.
-func (w *Watcher) checkAgents(ctx context.Context, cutoff, now time.Time) (int, int) {
+func (w *Watcher) checkAgents(ctx context.Context, cutoff, now time.Time, snaps map[string]Snapshot) (int, int) {
 	if w.agents == nil {
 		return 0, 0
 	}
@@ -120,26 +120,48 @@ func (w *Watcher) checkAgents(ctx context.Context, cutoff, now time.Time) (int, 
 		offlineIDs[info.ID] = struct{}{}
 
 		key := EntityKey("agent", info.ID)
+		if w.reconnectAuthoritative(snaps, key, info.LastSeenAt, now) {
+			continue
+		}
 		if !w.state.Transition(ctx, key, stateForEvent(EventAgentOffline)) {
 			continue
+		}
+
+		detail := map[string]any{
+			"id":           info.ID,
+			"sid":          info.SID,
+			"name":         info.Name,
+			"last_seen_at": rfc3339(info.LastSeenAt),
+			"reason":       reasonHeartbeatTimeout,
+		}
+		if ip := ipv4(info.PublicAddress); ip != "" {
+			detail["public_ipv4"] = ip
 		}
 
 		w.notifier.Emit(ctx, Event{
 			Event:  EventAgentOffline,
 			Entity: Entity("agent", info.Name),
 			TS:     now.Unix(),
-			Detail: map[string]any{
-				"id":           info.ID,
-				"sid":          info.SID,
-				"name":         info.Name,
-				"last_seen_at": rfc3339(info.LastSeenAt),
-				"reason":       reasonHeartbeatTimeout,
-			},
+			Detail: detail,
 		})
 		emitted++
 	}
 
 	return emitted, w.recoverAgents(ctx, offlineIDs, now)
+}
+
+// reconnectAuthoritative reports whether a recent WebSocket online edge should
+// suppress this offline edge. last_seen_at is rate-limited in the database (at
+// most one write per two minutes), so right after a reconnect the row can still
+// hold the stale pre-disconnect value. A state recorded online after that value,
+// and less than one full timeout old, is authoritative: the resource is known
+// to be connected even though the row has not caught up yet.
+func (w *Watcher) reconnectAuthoritative(snaps map[string]Snapshot, key string, lastSeen, now time.Time) bool {
+	snap, ok := snaps[key]
+	if !ok || snap.State != stateForEvent(EventAgentOnline) {
+		return false
+	}
+	return snap.Since.After(lastSeen) && now.Sub(snap.Since) < shared.DefaultOnlineTimeout
 }
 
 // recoverAgents emits agent.online for recorded-offline agents that reported
@@ -206,7 +228,7 @@ func (w *Watcher) recoverAgents(ctx context.Context, offlineIDs map[uint]struct{
 // checkNodes emits node.offline for stale nodes and then node.online for nodes
 // that were previously stale. It returns the number of events emitted per
 // direction.
-func (w *Watcher) checkNodes(ctx context.Context, cutoff, now time.Time) (int, int) {
+func (w *Watcher) checkNodes(ctx context.Context, cutoff, now time.Time, snaps map[string]Snapshot) (int, int) {
 	if w.nodes == nil {
 		return 0, 0
 	}
@@ -226,21 +248,31 @@ func (w *Watcher) checkNodes(ctx context.Context, cutoff, now time.Time) (int, i
 		offlineIDs[info.ID] = struct{}{}
 
 		key := EntityKey("node", info.ID)
+		if w.reconnectAuthoritative(snaps, key, info.LastSeenAt, now) {
+			continue
+		}
 		if !w.state.Transition(ctx, key, stateForEvent(EventNodeOffline)) {
 			continue
+		}
+
+		detail := map[string]any{
+			"id":           info.ID,
+			"sid":          info.SID,
+			"name":         info.Name,
+			"last_seen_at": rfc3339(info.LastSeenAt),
+			"reason":       reasonHeartbeatTimeout,
+		}
+		if info.PublicIPv4 != nil {
+			if ip := ipv4(*info.PublicIPv4); ip != "" {
+				detail["public_ipv4"] = ip
+			}
 		}
 
 		w.notifier.Emit(ctx, Event{
 			Event:  EventNodeOffline,
 			Entity: Entity("node", info.Name),
 			TS:     now.Unix(),
-			Detail: map[string]any{
-				"id":           info.ID,
-				"sid":          info.SID,
-				"name":         info.Name,
-				"last_seen_at": rfc3339(info.LastSeenAt),
-				"reason":       reasonHeartbeatTimeout,
-			},
+			Detail: detail,
 		})
 		emitted++
 	}

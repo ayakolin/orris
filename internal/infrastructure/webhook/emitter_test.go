@@ -184,6 +184,25 @@ func TestEmitterRuleFailureAggregatesAcrossAgents(t *testing.T) {
 	}
 }
 
+func TestEmitterForgetRuleStatusAllowsLaterFailure(t *testing.T) {
+	emitter, capture, cleanup := newTestEmitter(t, nil)
+	defer cleanup()
+	ctx := context.Background()
+
+	emitter.ObserveRuleStatus(ctx, "fr_gone", "gone", 3, "failed", "error", "")
+	decodeEvents(t, capture.waitFor(t, 1))
+
+	// The rule is disabled while failing; the report path forgets the member.
+	emitter.ForgetRuleStatus(ctx, "fr_gone", 3)
+
+	emitter.ObserveRuleStatus(ctx, "fr_gone", "gone", 3, "failed", "error", "")
+	decodeEvents(t, capture.waitFor(t, 2))
+	time.Sleep(50 * time.Millisecond)
+	if got := capture.count(); got != 2 {
+		t.Fatalf("requests = %d, want 2 (a new failure after forgetting must emit)", got)
+	}
+}
+
 func TestEmitterTrafficThreshold(t *testing.T) {
 	emitter, capture, cleanup := newTestEmitter(t, nil)
 	defer cleanup()

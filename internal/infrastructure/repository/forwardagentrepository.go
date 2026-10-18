@@ -625,11 +625,12 @@ func (r *ForwardAgentRepositoryImpl) FindOfflineAgents(ctx context.Context, cuto
 		Name             string    `gorm:"column:name"`
 		LastSeenAt       time.Time `gorm:"column:last_seen_at"`
 		MuteNotification bool      `gorm:"column:mute_notification"`
+		PublicAddress    string    `gorm:"column:public_address"`
 	}
 
 	if err := r.db.WithContext(ctx).
 		Model(&models.ForwardAgentModel{}).
-		Select("id, sid, name, last_seen_at, mute_notification").
+		Select("id, sid, name, last_seen_at, mute_notification, public_address").
 		Where("status = ?", "enabled").
 		Where("last_seen_at IS NOT NULL").
 		Where("last_seen_at < ?", cutoff).
@@ -646,6 +647,7 @@ func (r *ForwardAgentRepositoryImpl) FindOfflineAgents(ctx context.Context, cuto
 			Name:             res.Name,
 			LastSeenAt:       res.LastSeenAt.UTC(),
 			MuteNotification: res.MuteNotification,
+			PublicAddress:    res.PublicAddress,
 		})
 	}
 

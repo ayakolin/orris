@@ -168,6 +168,15 @@ func (e *Emitter) ObserveRuleStatus(
 	}
 }
 
+// ForgetRuleStatus clears the failing-agent record for a rule that is no longer
+// reported as enabled, so it cannot suppress a future failure.
+func (e *Emitter) ForgetRuleStatus(ctx context.Context, ruleSID string, agentID uint) {
+	if ruleSID == "" || !e.Enabled() {
+		return
+	}
+	e.state.SetTransition(ctx, "rule:"+ruleSID, strconv.FormatUint(uint64(agentID), 10), false)
+}
+
 func ruleFailed(syncStatus, runStatus string) bool {
 	return syncStatus == syncStatusFailed || runStatus == runStatusError || runStatus == runStatusStopped
 }
@@ -211,6 +220,11 @@ func (e *Emitter) ObserveTrafficThreshold(
 	if percent < float64(e.thresholdPct) {
 		// Re-arm: only a state change matters, no recovery event exists.
 		e.state.Transition(ctx, key, "normal")
+		return
+	}
+
+	// Skip the expensive node load while the alert is already recorded.
+	if e.state.State(ctx, key) == "alert" {
 		return
 	}
 

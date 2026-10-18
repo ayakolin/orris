@@ -12,6 +12,7 @@ import (
 	"github.com/orris-inc/orris/internal/domain/forward"
 	"github.com/orris-inc/orris/internal/domain/node"
 	vo "github.com/orris-inc/orris/internal/domain/node/valueobjects"
+	"github.com/orris-inc/orris/internal/domain/shared"
 	"github.com/orris-inc/orris/internal/shared/config"
 	"github.com/orris-inc/orris/internal/shared/logger"
 )
@@ -76,6 +77,7 @@ func (f *fakeNodeSource) GetByIDs(_ context.Context, ids []uint) ([]*node.Node, 
 
 type watcherHarness struct {
 	watcher *Watcher
+	emitter *Emitter
 	state   *StateStore
 	capture *capture
 	agents  *fakeAgentSource
@@ -99,8 +101,11 @@ func newWatcherHarness(t *testing.T) *watcherHarness {
 	nodes := &fakeNodeSource{byID: map[uint]*node.Node{}}
 	state := NewStateStore(nil, logger.NewLogger())
 
+	cfg := config.WebhookConfig{URL: srv.URL, Secret: "s3cr3t", TrafficThresholdPercent: 90}
+
 	return &watcherHarness{
 		watcher: NewWatcher(agents, nodes, notifier, state, logger.NewLogger()),
+		emitter: NewEmitter(notifier, state, nil, cfg, logger.NewLogger()),
 		state:   state,
 		capture: cap,
 		agents:  agents,
@@ -375,6 +380,34 @@ func TestWatcherAgentOnlineAfterHeartbeatResumes(t *testing.T) {
 	}
 }
 
+// The offline row already carries the public address, so the watcher includes
+// it without an extra query.
+func TestWatcherOfflineIncludesPublicIP(t *testing.T) {
+	h := newWatcherHarness(t)
+
+	lastSeen := time.Now().UTC().Add(-10 * time.Minute)
+	agent := newTestAgent(t, 41, "fa_41", "edge-41", "203.0.113.41", &lastSeen)
+	h.agents.byID[41] = agent
+	h.agents.offline = []*forward.OfflineAgentInfo{
+		{ID: 41, SID: "fa_41", Name: "edge-41", LastSeenAt: lastSeen, PublicAddress: "203.0.113.41"},
+	}
+
+	ipv4 := "198.51.100.42"
+	h.nodes.byID[42] = newTestNode(t, 42, "node_42", "edge-42", ipv4, &lastSeen)
+	h.nodes.offline = []*node.OfflineNodeInfo{
+		{ID: 42, SID: "node_42", Name: "edge-42", LastSeenAt: lastSeen, PublicIPv4: &ipv4},
+	}
+
+	h.run()
+	events := h.waitEvents(t, 2)
+	if got := detailString(t, events[0], "public_ipv4"); got != "203.0.113.41" {
+		t.Fatalf("agent public_ipv4 = %q, want 203.0.113.41", got)
+	}
+	if got := detailString(t, events[1], "public_ipv4"); got != "198.51.100.42" {
+		t.Fatalf("node public_ipv4 = %q, want 198.51.100.42", got)
+	}
+}
+
 func TestWatcherRecoveryRequiresHeartbeatAfterOfflineEdge(t *testing.T) {
 	h := newWatcherHarness(t)
 
@@ -588,5 +621,74 @@ func TestWatcherMalformedStateKeyIsSkipped(t *testing.T) {
 	h.assertNoNewEvents(t, 0)
 	if got := h.state.State(ctx, "agent:not-a-number"); got != "offline" {
 		t.Fatalf("state = %q, want offline (key must be left untouched)", got)
+	}
+}
+
+// TestWatcherReconnectDoesNotReflap covers the WebSocket reconnect race: the
+// database last_seen_at is rate-limited (one write per two minutes), so right
+// after a reconnect the row still holds the pre-disconnect value. The watcher
+// must treat the recent online edge as authoritative, and only report offline
+// again once a full timeout has passed since that edge with no new heartbeat.
+func TestWatcherReconnectDoesNotReflap(t *testing.T) {
+	h := newWatcherHarness(t)
+
+	// 1. Offline edge from a stale row.
+	lastSeen := time.Now().UTC().Add(-10 * time.Minute)
+	agent := newTestAgent(t, 31, "fa_31", "edge-31", "", &lastSeen)
+	h.agents.byID[31] = agent
+	h.agents.offline = []*forward.OfflineAgentInfo{
+		{ID: 31, SID: "fa_31", Name: "edge-31", LastSeenAt: lastSeen},
+	}
+	h.run()
+	h.waitEvents(t, 1)
+
+	// 2. WebSocket reconnect emits online, but the row is still stale.
+	isEnabled := true
+	h.emitter.Agent(context.Background(), agent, EventAgentOnline, "websocket_connected")
+	h.waitEvents(t, 2)
+	if !isEnabled {
+		t.Fatal("unreachable")
+	}
+
+	// 3. Next watcher pass sees the stale row again: no third event.
+	h.run()
+	h.assertNoNewEvents(t, 2)
+	if got := h.state.State(context.Background(), EntityKey("agent", 31)); got != "online" {
+		t.Fatalf("state = %q, want online to persist", got)
+	}
+
+	// 4. A full timeout after the online edge with no heartbeat: offline again.
+	h.watcher.now = func() time.Time { return time.Now().UTC().Add(shared.DefaultOnlineTimeout + time.Minute) }
+	h.run()
+	events := h.waitEvents(t, 3)
+	if events[2].Event != EventAgentOffline {
+		t.Fatalf("event = %q, want %q", events[2].Event, EventAgentOffline)
+	}
+}
+
+// Same guard for nodes.
+func TestWatcherNodeReconnectDoesNotReflap(t *testing.T) {
+	h := newWatcherHarness(t)
+
+	lastSeen := time.Now().UTC().Add(-10 * time.Minute)
+	n := newTestNode(t, 32, "node_32", "edge-32", "", &lastSeen)
+	h.nodes.byID[32] = n
+	h.nodes.offline = []*node.OfflineNodeInfo{
+		{ID: 32, SID: "node_32", Name: "edge-32", LastSeenAt: lastSeen},
+	}
+	h.run()
+	h.waitEvents(t, 1)
+
+	h.emitter.Node(context.Background(), n, EventNodeOnline, "websocket_connected")
+	h.waitEvents(t, 2)
+
+	h.run()
+	h.assertNoNewEvents(t, 2)
+
+	h.watcher.now = func() time.Time { return time.Now().UTC().Add(shared.DefaultOnlineTimeout + time.Minute) }
+	h.run()
+	events := h.waitEvents(t, 3)
+	if events[2].Event != EventNodeOffline {
+		t.Fatalf("event = %q, want %q", events[2].Event, EventNodeOffline)
 	}
 }
