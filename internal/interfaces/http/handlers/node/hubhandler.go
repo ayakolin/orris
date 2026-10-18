@@ -89,6 +89,12 @@ type NodeSubscriptionUsageReader interface {
 	GetCurrentPeriodUsage(ctx context.Context, subscriptionID uint, periodStart, periodEnd time.Time) (int64, error)
 }
 
+// TrafficThresholdObserver receives usage samples so outbound webhooks can
+// detect quota crossings without affecting enforcement.
+type TrafficThresholdObserver interface {
+	ObserveTrafficThreshold(ctx context.Context, nodeID, subscriptionID uint, usedBytes, limitBytes uint64)
+}
+
 // NodeSubscriptionQuotaCache defines the interface for subscription quota caching.
 type NodeSubscriptionQuotaCache = usecases.NodeSubscriptionQuotaCache
 
@@ -121,6 +127,9 @@ type NodeHubHandler struct {
 
 	// reportOnlineSubscriptionsUC handles online subscription reports via WebSocket
 	reportOnlineSubscriptionsUC *usecases.ReportOnlineSubscriptionsUseCase
+
+	// trafficThresholdObserver receives usage samples for outbound webhook alerts
+	trafficThresholdObserver TrafficThresholdObserver
 }
 
 // NewNodeHubHandler creates a new NodeHubHandler.
@@ -165,9 +174,14 @@ func (h *NodeHubHandler) SetQuotaCache(cache NodeSubscriptionQuotaCache) {
 	h.quotaCache = cache
 }
 
-// SetUsageReader sets the usage reader for real-time traffic limit checking (optional).
+// SetUsageReader sets the usage reader for traffic limit checks (optional).
 func (h *NodeHubHandler) SetUsageReader(reader NodeSubscriptionUsageReader) {
 	h.usageReader = reader
+}
+
+// SetTrafficThresholdObserver sets the observer notified about quota crossings (optional).
+func (h *NodeHubHandler) SetTrafficThresholdObserver(observer TrafficThresholdObserver) {
+	h.trafficThresholdObserver = observer
 }
 
 // SetQuotaLoader sets the quota loader for lazy loading when cache miss occurs (optional).
@@ -551,7 +565,7 @@ func (h *NodeHubHandler) handleTrafficEvent(nodeID uint, extra any) {
 		// Compare current usage against cached limit to detect over-limit immediately.
 		// Note: Only node/hybrid subscriptions are checked here; forward subscriptions are handled
 		// by Forward Agent traffic reporting flow.
-		h.checkAndEnforceTrafficLimit(ctx, subID)
+		h.checkAndEnforceTrafficLimit(ctx, nodeID, subID)
 	}
 
 }
@@ -617,7 +631,7 @@ func (h *NodeHubHandler) handleOnlineSubscriptionsEvent(nodeID uint, extra any) 
 
 // checkAndEnforceTrafficLimit performs real-time traffic limit check using cached quota.
 // If the subscription exceeds its limit, it marks the subscription as suspended and triggers enforcement.
-func (h *NodeHubHandler) checkAndEnforceTrafficLimit(ctx context.Context, subscriptionID uint) {
+func (h *NodeHubHandler) checkAndEnforceTrafficLimit(ctx context.Context, nodeID, subscriptionID uint) {
 	// Skip if dependencies are not set
 	if h.quotaCache == nil || h.usageReader == nil || h.trafficEnforcer == nil {
 		return
@@ -678,14 +692,21 @@ func (h *NodeHubHandler) checkAndEnforceTrafficLimit(ctx context.Context, subscr
 		return
 	}
 
-	// 7. Compare usage against limit (skip unlimited quotas where Limit == 0)
+	// 7. Notify outbound webhook observers about the usage sample before
+	// enforcement so threshold crossings are reported even when the
+	// subscription is not yet suspended. The observer also re-arms when usage
+	// falls back below the configured percentage.
+	if h.trafficThresholdObserver != nil && quota.Limit > 0 {
+		h.trafficThresholdObserver.ObserveTrafficThreshold(ctx, nodeID, subscriptionID, uint64(usage), uint64(quota.Limit))
+	}
+
+	// 8. Compare usage against limit (skip unlimited quotas where Limit == 0)
 	if quota.Limit > 0 && usage >= quota.Limit {
 		h.logger.Debugw("node subscription exceeded traffic limit, triggering enforcement",
 			"subscription_id", subscriptionID,
 			"usage", usage,
 			"limit", quota.Limit,
 		)
-
 		// Mark as suspended in cache to prevent duplicate enforcement
 		if err := h.quotaCache.MarkSuspended(ctx, subscriptionID); err != nil {
 			h.logger.Warnw("failed to mark subscription as suspended in cache",

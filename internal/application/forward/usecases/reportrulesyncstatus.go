@@ -16,12 +16,24 @@ type RuleSyncStatusUpdater interface {
 	UpdateRuleStatus(ctx context.Context, agentID uint, rules []dto.RuleSyncStatusItem) error
 }
 
+// RuleStatusObserver receives per-rule sync/run status after it has been persisted.
+type RuleStatusObserver interface {
+	ObserveRuleStatus(ctx context.Context, ruleSID, ruleName string, agentID uint, syncStatus, runStatus, errorMessage string)
+}
+
 // ReportRuleSyncStatusUseCase handles rule sync status reporting from agents.
 type ReportRuleSyncStatusUseCase struct {
-	agentRepo     forward.AgentRepository
-	statusUpdater RuleSyncStatusUpdater
-	ruleRepo      forward.Repository
-	logger        logger.Interface
+	agentRepo          forward.AgentRepository
+	statusUpdater      RuleSyncStatusUpdater
+	ruleRepo           forward.Repository
+	logger             logger.Interface
+	ruleStatusObserver RuleStatusObserver
+}
+
+// SetRuleStatusObserver wires an optional observer notified about per-rule status
+// after it has been persisted. Call before the use case is used concurrently.
+func (uc *ReportRuleSyncStatusUseCase) SetRuleStatusObserver(observer RuleStatusObserver) {
+	uc.ruleStatusObserver = observer
 }
 
 // NewReportRuleSyncStatusUseCase creates a new ReportRuleSyncStatusUseCase.
@@ -62,7 +74,63 @@ func (uc *ReportRuleSyncStatusUseCase) Execute(ctx context.Context, input *dto.R
 		"rules_count", len(input.Rules),
 	)
 
+	uc.observeRuleStatuses(ctx, input)
+
 	return nil
+}
+
+// observeRuleStatuses notifies the optional observer about each reported rule
+// that resolves to an enabled rule. Observation is best-effort: failures are
+// logged and never surface to the caller.
+func (uc *ReportRuleSyncStatusUseCase) observeRuleStatuses(ctx context.Context, input *dto.ReportRuleSyncStatusInput) {
+	if uc.ruleStatusObserver == nil || uc.ruleRepo == nil {
+		return
+	}
+
+	// Dedupe reported SIDs, preserving report order, so resolved lookups are batched.
+	sids := make([]string, 0, len(input.Rules))
+	seen := make(map[string]struct{}, len(input.Rules))
+	for _, item := range input.Rules {
+		if item.RuleID == "" {
+			continue
+		}
+		if _, ok := seen[item.RuleID]; ok {
+			continue
+		}
+		seen[item.RuleID] = struct{}{}
+		sids = append(sids, item.RuleID)
+	}
+	if len(sids) == 0 {
+		return
+	}
+
+	rules, err := uc.ruleRepo.GetBySIDs(ctx, sids)
+	if err != nil {
+		uc.logger.Warnw("failed to resolve rules for status observation",
+			"agent_id", input.AgentID,
+			"error", err,
+		)
+		return
+	}
+
+	for _, item := range input.Rules {
+		if item.RuleID == "" {
+			continue
+		}
+		rule, ok := rules[item.RuleID]
+		if !ok || rule == nil || !rule.IsEnabled() {
+			continue
+		}
+		uc.ruleStatusObserver.ObserveRuleStatus(
+			ctx,
+			rule.SID(),
+			rule.Name(),
+			input.AgentID,
+			item.SyncStatus,
+			item.RunStatus,
+			item.ErrorMessage,
+		)
+	}
 }
 
 // String implements fmt.Stringer for logging purposes.

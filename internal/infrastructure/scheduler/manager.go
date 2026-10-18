@@ -479,9 +479,38 @@ func (m *SchedulerManager) RegisterAdminNotificationJobs(
 	return nil
 }
 
+// WebhookHeartbeatWatcher performs one liveness pass for outbound webhooks.
+// Implemented by webhook.Watcher; the scheduler owns the ticker.
+type WebhookHeartbeatWatcher interface {
+	Run(ctx context.Context)
+}
+
+// RegisterWebhookJobs registers the outbound webhook heartbeat job:
+//   - Heartbeat watch: every minute, detects agents/nodes whose socket is still
+//     connected but whose heartbeats stopped. Independent of Telegram config.
+func (m *SchedulerManager) RegisterWebhookJobs(watcher WebhookHeartbeatWatcher) error {
+	_, err := m.scheduler.NewJob(
+		gocron.DurationJob(time.Minute),
+		gocron.NewTask(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			watcher.Run(ctx)
+		}),
+		gocron.WithStartAt(gocron.WithStartImmediately()),
+		gocron.WithSingletonMode(gocron.LimitModeReschedule),
+		gocron.WithTags("webhook", "heartbeat-watch"),
+		gocron.WithName("webhook-heartbeat-watch"),
+	)
+	if err != nil {
+		return err
+	}
+
+	m.logger.Infow("registered webhook heartbeat job", "interval", "1m")
+	return nil
+}
+
 func (m *SchedulerManager) checkOffline(ctx context.Context, processor AdminNotificationProcessor) {
 	m.logger.Debugw("starting offline check")
-
 	if err := processor.CheckOffline(ctx); err != nil {
 		m.logger.Errorw("failed to check offline", "error", err)
 		return
