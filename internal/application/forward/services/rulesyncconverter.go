@@ -123,23 +123,11 @@ func (c *RuleSyncConverter) Convert(ctx context.Context, rule *forward.ForwardRu
 	return syncData, nil
 }
 
+// usesRuleListenIP reports whether the pushed rule carries a ListenIP.
+// The predicate is shared with the agent pull path so both produce the same
+// value; see dto.ShouldSendListenIP.
 func usesRuleListenIP(data *dto.RuleSyncData) bool {
-	if data.ListenPort == 0 {
-		return false
-	}
-
-	switch data.RuleType {
-	case "direct":
-		return true
-	case "entry":
-		return data.Role == "entry"
-	case "chain":
-		return data.Role == "entry" || data.HopMode == "direct" || data.InboundMode == "direct"
-	case "direct_chain":
-		return true
-	default:
-		return data.Role == "entry"
-	}
+	return dto.ShouldSendListenIP(data.RuleType, data.Role, data.HopMode, data.InboundMode, data.ListenPort)
 }
 
 // convertDirectRule handles direct rule type conversion.
