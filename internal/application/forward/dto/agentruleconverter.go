@@ -267,6 +267,14 @@ func (c *AgentRuleConverter) populateRoleSpecificInfo(ctx context.Context, rule 
 	ruleType := rule.RuleType().String()
 	addrPref := rule.AddressPreference()
 
+	// ToForwardRuleDTO intentionally leaves TunnelType empty for direct,
+	// direct_chain and external rules (the admin/user listings rely on that).
+	// The agent, however, compares TunnelType verbatim against the value it
+	// received from the hub push, where an unset tunnel type is reported as its
+	// default ("ws"). Normalize here so both sources agree; the recorded value
+	// is only consumed when the rule actually uses a tunnel.
+	ruleDTO.TunnelType = rule.TunnelType().String()
+
 	switch ruleType {
 	case "direct":
 		c.populateDirectRuleInfo(ruleDTO)
@@ -284,7 +292,7 @@ func (c *AgentRuleConverter) populateRoleSpecificInfo(ctx context.Context, rule 
 	if ruleDTO.Role != "exit" && ruleType != "direct" {
 		ruleDTO.BindIP = ""
 	}
-	if ruleDTO.Role != "entry" {
+	if !ShouldSendListenIP(ruleType, ruleDTO.Role, ruleDTO.HopMode, ruleDTO.InboundMode, ruleDTO.ListenPort) {
 		ruleDTO.ListenIP = ""
 	}
 }
@@ -300,6 +308,11 @@ func (c *AgentRuleConverter) populateEntryRuleInfo(ctx context.Context, rule *fo
 		// This agent is the entry point
 		ruleDTO.Role = "entry"
 		c.populateEntryNextHopInfo(ctx, rule, ruleDTO, addrPref)
+		// The entry agent forwards to the exit agent, not to the final target,
+		// so it must not receive target info (minimum info principle). The hub
+		// push path behaves the same way.
+		ruleDTO.TargetAddress = ""
+		ruleDTO.TargetPort = 0
 	} else if c.isExitAgent(rule, agentID) {
 		// This agent is one of the exit points - clear exit_agent_id and exit_agents (minimum info principle)
 		ruleDTO.Role = "exit"
